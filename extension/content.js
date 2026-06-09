@@ -35,6 +35,7 @@
   let activeSpeaker = null;    // id of current/last speaker ('self' or a peer id)
   const DEFAULT_SERVER = 'wss://tradingview-squad-signaling.onrender.com'; // overridden by Settings → Server URL
   let serverUrl = DEFAULT_SERVER;
+  let manualSize = {};         // per-view manual {w,h} from dragging the resize grip
   const peers = new Map();
 
   // ---- background bridge ----------------------------------------------------
@@ -352,10 +353,15 @@
     :host { all: initial; }
     * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     .panel { position: fixed; right: 16px; bottom: 16px; background: #16181d; color: #e8eaed; border: 1px solid #262a32;
-      border-radius: 14px; box-shadow: 0 16px 48px rgba(0,0,0,.5); overflow: hidden; font-size: 13px; }
+      border-radius: 14px; box-shadow: 0 16px 48px rgba(0,0,0,.5); overflow: hidden; font-size: 13px;
+      display: flex; flex-direction: column; max-height: 92vh; }
+    .rgrip { position: absolute; top: 0; left: 0; width: 18px; height: 18px; cursor: nwse-resize; z-index: 6; }
+    .rgrip::before { content: ''; position: absolute; top: 6px; left: 6px; width: 7px; height: 7px; border-top: 2px solid #4a5160; border-left: 2px solid #4a5160; border-top-left-radius: 3px; }
+    .rgrip:hover::before { border-color: #7db8ff; }
+    .size-min .rgrip { display: none; }
     .panel.size-panel { width: 304px; }
     .panel.size-large { width: min(920px, 92vw); height: min(640px, 88vh); display: flex; flex-direction: column; }
-    .panel.size-large .body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .panel.size-large .body { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
     .panel.size-min { width: auto; cursor: pointer; }
     .panel.size-min .hdr { display: none; }
     .panel.size-min .body { padding: 0; }
@@ -365,7 +371,7 @@
     .hdr .code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8b919c; background: #0f1115; border: 1px solid #262a32; border-radius: 6px; padding: 2px 7px; }
     .ix { background: none; border: none; color: #8b919c; cursor: pointer; padding: 4px; border-radius: 7px; display: flex; }
     .ix:hover { background: #222630; color: #e8eaed; }
-    .body { padding: 14px; }
+    .body { padding: 14px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
     .field { display: block; width: 100%; margin: 0 0 8px; padding: 10px 11px; background: #0f1115; border: 1px solid #262a32; border-radius: 9px; color: #e8eaed; font-size: 13px; }
     .field.sm { padding: 7px 9px; margin-bottom: 6px; font-size: 12px; }
@@ -477,6 +483,12 @@
     .minwrap.minvid { position: relative; width: 188px; height: 106px; }
     .minwrap.minvid video { width: 100%; height: 100%; object-fit: cover; display: block; }
     .minwrap.minvid .mvlabel { position: absolute; left: 6px; bottom: 6px; font-size: 10px; background: rgba(0,0,0,.62); color: #fff; padding: 1px 6px; border-radius: 5px; max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .minctl { position: absolute; top: 6px; right: 6px; display: flex; gap: 6px; opacity: 0; transition: opacity .12s; }
+    .minwrap.minvid:hover .minctl { opacity: 1; }
+    .mc { width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer; background: rgba(0,0,0,.55); color: #fff; display: flex; align-items: center; justify-content: center; }
+    .mc:hover { background: rgba(0,0,0,.78); }
+    .mc svg { width: 15px; height: 15px; }
+    .mc.muted { background: #dc2626; } .mc.on { background: #2563eb; }
     .settings { position: absolute; top: 50px; right: 12px; width: 248px; background: #1b1e25; border: 1px solid #2b303a; border-radius: 10px; padding: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.5); z-index: 5; display: flex; flex-direction: column; gap: 12px; }
     .srow { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
     .srow.col { flex-direction: column; align-items: stretch; gap: 6px; }
@@ -500,6 +512,7 @@
   shadow.innerHTML = `
     <style>${STYLE}</style>
     <div class="panel size-panel" id="panel">
+      <div class="rgrip" id="rgrip" title="Drag to resize"></div>
       <div class="hdr" id="hdr">
         <span class="title">TradingView Squad</span>
         <span class="code hidden" id="hdrCode"></span>
@@ -545,10 +558,26 @@
   shadow.querySelectorAll('[data-mm]').forEach((b) => b.addEventListener('click', () => { minMode = b.dataset.mm; storageSet({ tvSquadMinMode: minMode }); syncSettings(); if (view === 'min') renderMin(); }));
   $('serverInput').addEventListener('change', () => { serverUrl = $('serverInput').value.trim() || DEFAULT_SERVER; storageSet({ tvSquadServer: serverUrl }); });
 
+  // Manual resize: drag the top-left grip (panel is docked bottom-right, so it
+  // grows up-and-left). Size is remembered per view.
+  (() => {
+    let rs = null;
+    $('rgrip').addEventListener('mousedown', (e) => { if (view === 'min') return; rs = { sx: e.clientX, sy: e.clientY, sw: panel.offsetWidth, sh: panel.offsetHeight }; e.preventDefault(); e.stopPropagation(); });
+    window.addEventListener('mousemove', (e) => {
+      if (!rs) return;
+      const w = Math.max(260, Math.min(window.innerWidth * 0.96, rs.sw + (rs.sx - e.clientX)));
+      const h = Math.max(220, Math.min(window.innerHeight * 0.92, rs.sh + (rs.sy - e.clientY)));
+      panel.style.width = w + 'px'; panel.style.height = h + 'px'; manualSize[view] = { w, h };
+    });
+    window.addEventListener('mouseup', () => { if (rs) { rs = null; storageSet({ tvSquadSizes: manualSize }); } });
+  })();
+
   function setView(v) { if (v === 'panel' || v === 'large') lastSize = v; view = v; applyView(); }
   function applyView() {
     if (!connected && view === 'large') view = 'panel';
     panel.className = 'panel size-' + view;
+    if (view !== 'min' && manualSize[view]) { panel.style.width = manualSize[view].w + 'px'; panel.style.height = manualSize[view].h + 'px'; }
+    else { panel.style.width = ''; panel.style.height = ''; }
     const b = $('body'); if (b) { b._minVid = null; }
     if (view === 'min') renderMin(); else renderBody();
   }
@@ -574,6 +603,12 @@
     return a.join('');
   }
   function pillAva(name, spk) { return `<span class="pava ${spk ? 'spk' : ''}" style="background:${colorFor(name)}" title="${escapeHtml(name)}">${escapeHtml(initials(name))}</span>`; }
+  function fillMinControls(el) {
+    el.innerHTML = '';
+    const mk = (cls, html, title, fn) => { const b = document.createElement('button'); b.className = 'mc ' + cls; b.innerHTML = html; b.title = title; b.addEventListener('click', (e) => { e.stopPropagation(); fn(); }); return b; };
+    el.appendChild(mk(muted ? 'muted' : '', muted ? ICONS.micOff : ICONS.mic, muted ? 'Unmute' : 'Mute', toggleMute));
+    el.appendChild(mk(camStream ? 'on' : '', camStream ? ICONS.cam : ICONS.camOff, 'Camera', toggleCam));
+  }
   function pinName() {
     for (const peer of peers.values()) if (peer.videoStreams.has(pinnedStreamId)) return peer.name;
     if (camStream && camStream.id === pinnedStreamId) return myName;
@@ -612,9 +647,11 @@
         const wrap = document.createElement('div'); wrap.className = 'minwrap minvid';
         const v = document.createElement('video'); v.autoplay = true; v.playsInline = true; v.muted = true; v.srcObject = f.video;
         const lbl = document.createElement('div'); lbl.className = 'mvlabel';
-        wrap.appendChild(v); wrap.appendChild(lbl); body.appendChild(wrap); body._lbl = lbl;
+        const ctl = document.createElement('div'); ctl.className = 'minctl';
+        wrap.appendChild(v); wrap.appendChild(lbl); wrap.appendChild(ctl); body.appendChild(wrap); body._lbl = lbl; body._ctl = ctl;
       }
       if (body._lbl) body._lbl.textContent = f.name || '';
+      if (body._ctl) fillMinControls(body._ctl);
     } else {
       body._minVid = null;
       body.innerHTML = `<div class="minwrap minsolo"><div class="ava big ${f.spk ? 'spk' : ''}" style="background:${colorFor(f.name)}">${escapeHtml(initials(f.name))}</div><div class="mname">${escapeHtml(f.name || 'Anon')}</div></div>`;
@@ -850,11 +887,12 @@
   function openModal(stream) { const modal = $('modal'); modal.innerHTML = ''; const v = document.createElement('video'); v.autoplay = true; v.playsInline = true; v.srcObject = stream; modal.appendChild(v); modal.classList.remove('hidden'); modal.addEventListener('click', () => modal.classList.add('hidden'), { once: true }); }
   function randomCode() { const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 6; i++) s += a[Math.floor(Math.random() * a.length)]; return s; }
 
-  storageGet(['tvSquadShareTrades', 'tvSquadMinMode', 'tvSquadServer'], (r) => {
+  storageGet(['tvSquadShareTrades', 'tvSquadMinMode', 'tvSquadServer', 'tvSquadSizes'], (r) => {
     shareTrades = !!(r && r.tvSquadShareTrades);
     if (r && r.tvSquadMinMode) minMode = r.tvSquadMinMode;
     if (r && r.tvSquadServer) serverUrl = r.tvSquadServer;
-    renderControls(); syncSettings();
+    if (r && r.tvSquadSizes) manualSize = r.tvSquadSizes;
+    renderControls(); syncSettings(); applyView();
   });
   applyView();
 })();
