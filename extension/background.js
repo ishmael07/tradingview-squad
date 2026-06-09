@@ -3,7 +3,7 @@
 // so it isn't affected by tradingview.com's page CSP, and so host_permissions
 // cover the localhost connection. WebRTC media itself lives in the content script.
 
-const SERVER_URL = 'ws://localhost:8080';
+const SERVER_URL = 'wss://tradingview-squad-signaling.onrender.com';
 
 let ws = null;
 let tabId = null;

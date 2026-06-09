@@ -33,7 +33,7 @@
   let switching = false;       // an intentional room switch is in flight
   let minMode = 'speaker';     // minimized view: 'speaker' (active speaker) | 'multi'
   let activeSpeaker = null;    // id of current/last speaker ('self' or a peer id)
-  const DEFAULT_SERVER = 'ws://localhost:8080'; // overridden by Settings → Server URL
+  const DEFAULT_SERVER = 'wss://tradingview-squad-signaling.onrender.com'; // overridden by Settings → Server URL
   let serverUrl = DEFAULT_SERVER;
   const peers = new Map();
 
