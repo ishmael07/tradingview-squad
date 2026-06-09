@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: tradingview-squad-signaling
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /

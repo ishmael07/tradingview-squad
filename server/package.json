@@ -1,0 +1,12 @@
+{
+  "name": "tradingview-squad-server",
+  "version": "0.1.0",
+  "description": "Signaling + presence server for the TradingView Squad extension",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

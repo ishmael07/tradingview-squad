@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TradingView Squad — trade together, live</title>
+<meta name="description" content="A Chrome extension that puts you on a voice + video call with your friends right inside TradingView. See each other's charts, share screens, and call out trades in real time." />
+<style>
+  :root {
+    --bg: #0c0d10; --bg2: #16181d; --card: #16181d; --border: #262a32;
+    --text: #e8eaed; --muted: #8b919c; --dim: #6f7682;
+    --blue: #3b82f6; --blue2: #2563eb; --green: #4ade80; --red: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-decoration: none; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* nav */
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
+  .brand .logo { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #2563eb, #4ade80);
+    display: flex; align-items: center; justify-content: center; }
+  .navlinks { display: flex; gap: 26px; align-items: center; color: var(--muted); font-size: 14px; }
+  .navlinks a:hover { color: var(--text); }
+
+  /* hero */
+  .hero { padding: 70px 0 60px; display: grid; grid-template-columns: 1.05fr .95fr; gap: 48px; align-items: center; }
+  .tag { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--green);
+    background: #0f2a1b; border: 1px solid #1c4030; padding: 5px 11px; border-radius: 999px; margin-bottom: 22px; }
+  .tag .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  h1 { font-size: 52px; line-height: 1.06; letter-spacing: -1.4px; font-weight: 800; }
+  h1 .grad { background: linear-gradient(120deg, #5aa7ff, #4ade80); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { color: var(--muted); font-size: 18px; margin: 20px 0 30px; max-width: 520px; }
+  .cta { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; font-weight: 650; font-size: 15px; padding: 13px 22px;
+    border-radius: 11px; cursor: pointer; border: none; transition: transform .08s, background .15s; }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--blue2); color: #fff; }
+  .btn.primary:hover { background: #2f74e6; }
+  .btn.ghost { background: #1b1e25; color: var(--text); border: 1px solid var(--border); }
+  .btn.ghost:hover { background: #222630; }
+  .microcopy { color: var(--dim); font-size: 13px; margin-top: 14px; }
+
+  /* hero mock */
+  .mock { background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
+    box-shadow: 0 24px 70px rgba(0,0,0,.5); }
+  .mock .mhdr { display: flex; align-items: center; gap: 8px; padding: 13px 15px; border-bottom: 1px solid #20242b; }
+  .mock .mhdr .t { font-weight: 650; font-size: 14px; flex: 1; }
+  .mock .mhdr .code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted);
+    background: #0f1115; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; }
+  .mock .mbody { padding: 14px; }
+  .row { display: flex; align-items: center; gap: 11px; padding: 7px 2px; }
+  .ava { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px; color: #fff; flex: 0 0 auto; }
+  .ava.s { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--green); }
+  .who .nm { font-weight: 600; font-size: 14px; }
+  .who .sym { display: inline-flex; align-items: center; gap: 5px; font-family: ui-monospace, Menlo, monospace;
+    font-size: 11px; color: #cbd2da; background: #18222f; border: 1px solid #2b3a4d; border-radius: 6px; padding: 1px 7px; margin-top: 3px; }
+  .who .sym svg { stroke: #5aa7ff; }
+  .divider { height: 1px; background: #20242b; margin: 12px 0; }
+  .bar { display: flex; gap: 9px; justify-content: center; }
+  .ic { width: 38px; height: 38px; border-radius: 50%; background: #21262e; display: flex; align-items: center; justify-content: center; color: var(--text); }
+  .ic.on { background: var(--blue2); }
+  .ic.red { background: #3a2024; color: var(--red); }
+  .trades { margin-top: 12px; }
+  .trow { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 8px; background: #0f1115; margin-top: 6px; }
+  .ttag { font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 5px; }
+  .ttag.buy { background: #0f2a1b; color: var(--green); } .ttag.sell { background: #2c1417; color: var(--red); }
+  .trow .tx { font-size: 12px; } .trow .tx b { color: var(--text); } .trow .tx span { color: var(--muted); }
+
+  /* sections */
+  section { padding: 64px 0; }
+  .eyebrow { color: var(--blue); font-weight: 700; font-size: 13px; letter-spacing: .5px; text-transform: uppercase; }
+  h2 { font-size: 34px; letter-spacing: -.8px; margin: 10px 0 14px; font-weight: 800; }
+  .lead { color: var(--muted); font-size: 17px; max-width: 620px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 40px; }
+  .feat { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
+  .feat .fi { width: 40px; height: 40px; border-radius: 10px; background: #11161f; border: 1px solid #223; display: flex;
+    align-items: center; justify-content: center; margin-bottom: 14px; color: #7db8ff; }
+  .feat h3 { font-size: 16px; margin-bottom: 7px; }
+  .feat p { color: var(--muted); font-size: 14px; }
+
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 40px; }
+  .step { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; position: relative; }
+  .step .n { width: 30px; height: 30px; border-radius: 8px; background: var(--blue2); color: #fff; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; margin-bottom: 14px; }
+  .step h3 { font-size: 15px; margin-bottom: 6px; }
+  .step p { color: var(--muted); font-size: 14px; }
+  .step code { background: #0f1115; border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; font-size: 12px; }
+
+  .note { background: #14110a; border: 1px solid #3a2f12; color: #d9b974; border-radius: 12px; padding: 16px 18px;
+    font-size: 14px; margin-top: 28px; }
+
+  footer { border-top: 1px solid var(--border); padding: 30px 0; color: var(--dim); font-size: 13px;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; padding: 40px 0; } h1 { font-size: 40px; }
+    .grid, .steps { grid-template-columns: 1fr; } .navlinks { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <nav>
+    <div class="brand">
+      <span class="logo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/></svg>
+      </span>
+      TradingView Squad
+    </div>
+    <div class="navlinks">
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="#" id="navAdd">Add to Chrome</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div>
+      <span class="tag"><span class="dot"></span> Live voice while you trade</span>
+      <h1>Trade together,<br><span class="grad">right on the chart.</span></h1>
+      <p class="sub">A Chrome extension that drops you and your friends into a voice + video call inside TradingView. See who's on what chart, share your screen, and call out entries in real time.</p>
+      <div class="cta">
+        <button class="btn primary" id="addBtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>
+          Add to Chrome — Free
+        </button>
+        <a class="btn ghost" href="#features">See how it works</a>
+      </div>
+      <p class="microcopy">Works on tradingview.com · Voice, video & screen share · Free</p>
+    </div>
+
+    <!-- product mock -->
+    <div class="mock">
+      <div class="mhdr">
+        <span class="t">TradingView Squad</span>
+        <span class="code">🌐 SPY</span>
+      </div>
+      <div class="mbody">
+        <div class="row">
+          <div class="ava s" style="background:#b6359c">IS</div>
+          <div class="who"><div class="nm">ishyfishy <span style="color:var(--dim);font-weight:400;font-size:12px">(you)</span></div>
+            <span class="sym"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>AMEX:SPY</span></div>
+        </div>
+        <div class="row">
+          <div class="ava" style="background:#2f7d4f">MJ</div>
+          <div class="who"><div class="nm">mjtrades</div>
+            <span class="sym"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>NASDAQ:TSLA</span></div>
+        </div>
+        <div class="divider"></div>
+        <div class="bar">
+          <div class="ic on"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></div>
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/></svg></div>
+          <div class="ic red"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></div>
+        </div>
+        <div class="trades">
+          <div class="trow"><span class="ttag buy">BUY</span><span class="tx"><b>mjtrades</b> opened TSLA <span>@ 248.50 · 7:58 PM</span></span></div>
+          <div class="trow"><span class="ttag sell">SELL</span><span class="tx"><b>ishyfishy</b> closed SPY <span>@ 739.31</span></span></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- FEATURES -->
+  <section id="features">
+    <span class="eyebrow">Why it's different</span>
+    <h2>Your trading desk, with your crew on it.</h2>
+    <p class="lead">No more sharing screenshots in a group chat. Hop on, talk, and watch each other trade the same charts live.</p>
+    <div class="grid">
+      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></div><h3>Live voice & video</h3><p>Crystal-clear peer-to-peer audio and camera with your whole group, right in the chart tab.</p></div>
+      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/></svg></div><h3>Screen share</h3><p>Show your setup, a tab, or your full screen. Pin anyone's share to the main stage.</p></div>
+      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg></div><h3>Live chart presence</h3><p>See exactly which symbol each person is viewing, updating in real time as they switch.</p></div>
+      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/></svg></div><h3>Trade callouts</h3><p>Broadcast buy/sell, stock or option (call/put, strike, expiry), market/limit — to the whole room instantly.</p></div>
+      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3>Public ticker rooms</h3><p>Join the live room for whatever you're watching — everyone on SPY in one place. Auto-follow your chart.</p></div>
+      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4h6l-1 7 3 2v2h-5v5l-1 1-1-1v-5H4v-2l3-2-1-7z"/></svg></div><h3>Three sizes, always docked</h3><p>Minimize to an active-speaker bubble, a tidy side panel, or a full call view — pinned bottom-right.</p></div>
+    </div>
+  </section>
+
+  <!-- INSTALL -->
+  <section id="install">
+    <span class="eyebrow">Get started</span>
+    <h2>Install in under a minute.</h2>
+    <p class="lead">Once it's on the Chrome Web Store this is one click. Until then, you can load it manually today.</p>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><h3>Download</h3><p>Grab the extension <a href="tradingview-squad.zip" style="color:#7db8ff">.zip</a> and unzip it.</p></div>
+      <div class="step"><div class="n">2</div><h3>Load it</h3><p>Open <code>chrome://extensions</code>, turn on <b>Developer mode</b>, click <b>Load unpacked</b>, pick the <code>extension</code> folder.</p></div>
+      <div class="step"><div class="n">3</div><h3>Trade</h3><p>Open a TradingView chart, join a room (or a Public ticker room), allow your mic — you're on call.</p></div>
+    </div>
+    <div class="note">⚠️ <b>"Add to Chrome" goes live with the Chrome Web Store listing.</b> Google only allows one-click install from the Web Store, so for now use the manual steps above. Once published, the button here will install it instantly.</div>
+  </section>
+
+  <footer>
+    <span>© <span id="yr"></span> TradingView Squad · Not affiliated with TradingView.</span>
+    <span>Made for traders who'd rather be on a call.</span>
+  </footer>
+
+</div>
+
+<script>
+  document.getElementById('yr').textContent = new Date().getFullYear();
+  // Replace this with your Chrome Web Store URL once published, then the button installs in one click.
+  var CHROME_STORE_URL = "";
+  function handleAdd(e){
+    if (e) e.preventDefault();
+    if (CHROME_STORE_URL) { window.location.href = CHROME_STORE_URL; }
+    else { document.getElementById('install').scrollIntoView({ behavior: 'smooth' }); }
+  }
+  document.getElementById('addBtn').addEventListener('click', handleAdd);
+  document.getElementById('navAdd').addEventListener('click', handleAdd);
+</script>
+</body>
+</html>
