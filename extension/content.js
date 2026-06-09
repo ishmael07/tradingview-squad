@@ -270,7 +270,8 @@
         // Retry — a Render free instance can take ~30–50s to wake from sleep.
         if (retries < 18) {
           retries++;
-          setStatus(retries < 3 ? 'Connecting…' : `Waking server… (${retries})`);
+          const host = serverUrl.replace(/^wss?:\/\//, '').replace(/\/.*$/, '');
+          setStatus(retries < 3 ? ('Connecting to ' + host + '…') : ('Waking ' + host + '… (' + retries + ')'));
           retryTimer = setTimeout(() => { if (connecting && !connected) openConnection(); }, 3000);
         } else {
           connecting = false;

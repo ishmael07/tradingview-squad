@@ -31,10 +31,13 @@ function toCs(m) {
 }
 
 function openWs(p) {
+  const target = p.url || SERVER_URL;
   try {
     if (ws) { try { ws.close(); } catch (_) {} }
-    ws = new WebSocket(p.url || SERVER_URL);
-  } catch (_) {
+    console.log('[squad] connecting to', target);
+    ws = new WebSocket(target);
+  } catch (e) {
+    console.warn('[squad] WebSocket construct failed for', target, e);
     toCs({ type: 'status', state: 'error' });
     return;
   }
@@ -55,5 +58,5 @@ function openWs(p) {
   };
 
   ws.onclose = () => toCs({ type: 'status', state: 'closed' });
-  ws.onerror = () => toCs({ type: 'status', state: 'error' });
+  ws.onerror = () => { console.warn('[squad] WebSocket error for', target); toCs({ type: 'status', state: 'error' }); };
 }
