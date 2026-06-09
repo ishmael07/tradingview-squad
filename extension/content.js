@@ -38,6 +38,7 @@
   const DEFAULT_SERVER = 'wss://tradingview-squad-signaling.onrender.com'; // overridden by Settings → Server URL
   let serverUrl = DEFAULT_SERVER;
   let manualSize = {};         // per-view manual {w,h} from dragging the resize grip
+  let pos = null;              // {l,t} once the user drags it; null = default bottom-right
   const peers = new Map();
 
   // ---- background bridge ----------------------------------------------------
@@ -380,11 +381,11 @@
     .panel.size-panel { width: 304px; }
     .panel.size-large { width: min(920px, 92vw); height: min(640px, 88vh); display: flex; flex-direction: column; }
     .panel.size-large .body { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-    .panel.size-min { width: auto; cursor: pointer; }
+    .panel.size-min { width: auto; cursor: move; }
     .panel.size-min .hdr { display: none; }
     .panel.size-min .body { padding: 0; }
 
-    .hdr { display: flex; align-items: center; gap: 8px; padding: 12px 14px; user-select: none; flex: 0 0 auto; border-bottom: 1px solid #20242b; }
+    .hdr { display: flex; align-items: center; gap: 8px; padding: 12px 14px; user-select: none; flex: 0 0 auto; border-bottom: 1px solid #20242b; cursor: move; }
     .hdr .title { font-weight: 650; flex: 1; letter-spacing: .2px; }
     .hdr .code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8b919c; background: #0f1115; border: 1px solid #262a32; border-radius: 6px; padding: 2px 7px; }
     .ix { background: none; border: none; color: #8b919c; cursor: pointer; padding: 4px; border-radius: 7px; display: flex; }
@@ -558,13 +559,51 @@
   const $ = (id) => shadow.getElementById(id);
   const panel = $('panel');
 
-  // Always docked bottom-right (CSS handles position at every size). Clicking the
-  // minimized pill restores it to the last size.
-  panel.addEventListener('click', (e) => {
-    if (view !== 'min') return;
-    if (e.target.closest('button,input')) return;
-    setView(lastSize);
-  });
+  // Drag to move (header in panel/large, anywhere in min), drag the grip to resize,
+  // click the minimized pill to restore. Position & size are kept on screen + saved.
+  function applyPos() {
+    if (!pos) return;
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const l = Math.max(8, Math.min(window.innerWidth - w - 8, pos.l));
+    const t = Math.max(8, Math.min(window.innerHeight - h - 8, pos.t));
+    pos = { l, t };
+    panel.style.left = l + 'px'; panel.style.top = t + 'px'; panel.style.right = 'auto'; panel.style.bottom = 'auto';
+  }
+  (() => {
+    let rs = null, drag = null;
+    $('rgrip').addEventListener('mousedown', (e) => {
+      if (view === 'min') return;
+      rs = { sx: e.clientX, sy: e.clientY, r: panel.getBoundingClientRect() };
+      e.preventDefault(); e.stopPropagation();
+    });
+    panel.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.rgrip')) return;
+      if (view === 'min') { if (e.target.closest('button')) return; }
+      else { if (!e.target.closest('.hdr') || e.target.closest('button,input')) return; }
+      const r = panel.getBoundingClientRect();
+      drag = { sx: e.clientX, sy: e.clientY, l: r.left, t: r.top, moved: false };
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (rs) {
+        const w = Math.max(260, Math.min(window.innerWidth * 0.96, rs.r.width - (e.clientX - rs.sx)));
+        const h = Math.max(220, Math.min(window.innerHeight * 0.92, rs.r.height - (e.clientY - rs.sy)));
+        panel.style.width = w + 'px'; panel.style.height = h + 'px';
+        manualSize[view] = { w, h };
+        pos = { l: rs.r.right - w, t: rs.r.bottom - h };
+        applyPos();
+      } else if (drag) {
+        const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+        if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+        if (drag.moved) { pos = { l: drag.l + dx, t: drag.t + dy }; applyPos(); }
+      }
+    });
+    window.addEventListener('mouseup', () => {
+      if (rs) { rs = null; storageSet({ tvSquadSizes: manualSize, tvSquadPos: pos }); }
+      else if (drag) { const m = drag.moved; drag = null; if (m) storageSet({ tvSquadPos: pos }); else if (view === 'min') setView(lastSize); }
+    });
+    window.addEventListener('resize', () => { if (pos) applyPos(); });
+  })();
 
   $('expandBtn').addEventListener('click', (e) => { e.stopPropagation(); setView(view === 'large' ? 'panel' : 'large'); });
   $('minBtn').addEventListener('click', (e) => { e.stopPropagation(); setView('min'); });
@@ -576,20 +615,6 @@
   shadow.querySelectorAll('[data-mm]').forEach((b) => b.addEventListener('click', () => { minMode = b.dataset.mm; storageSet({ tvSquadMinMode: minMode }); syncSettings(); if (view === 'min') renderMin(); }));
   $('serverInput').addEventListener('change', () => { serverUrl = $('serverInput').value.trim() || DEFAULT_SERVER; storageSet({ tvSquadServer: serverUrl }); });
 
-  // Manual resize: drag the top-left grip (panel is docked bottom-right, so it
-  // grows up-and-left). Size is remembered per view.
-  (() => {
-    let rs = null;
-    $('rgrip').addEventListener('mousedown', (e) => { if (view === 'min') return; rs = { sx: e.clientX, sy: e.clientY, sw: panel.offsetWidth, sh: panel.offsetHeight }; e.preventDefault(); e.stopPropagation(); });
-    window.addEventListener('mousemove', (e) => {
-      if (!rs) return;
-      const w = Math.max(260, Math.min(window.innerWidth * 0.96, rs.sw + (rs.sx - e.clientX)));
-      const h = Math.max(220, Math.min(window.innerHeight * 0.92, rs.sh + (rs.sy - e.clientY)));
-      panel.style.width = w + 'px'; panel.style.height = h + 'px'; manualSize[view] = { w, h };
-    });
-    window.addEventListener('mouseup', () => { if (rs) { rs = null; storageSet({ tvSquadSizes: manualSize }); } });
-  })();
-
   function setView(v) { if (v === 'panel' || v === 'large') lastSize = v; view = v; applyView(); }
   function applyView() {
     if (!connected && view === 'large') view = 'panel';
@@ -598,6 +623,8 @@
     else { panel.style.width = ''; panel.style.height = ''; }
     const b = $('body'); if (b) { b._minVid = null; }
     if (view === 'min') renderMin(); else renderBody();
+    if (pos) applyPos();
+    else { panel.style.left = ''; panel.style.top = ''; panel.style.right = ''; panel.style.bottom = ''; }
   }
 
   function setStatus(t) { const el = $('statusLine'); if (el) el.textContent = t || ''; }
@@ -905,11 +932,12 @@
   function openModal(stream) { const modal = $('modal'); modal.innerHTML = ''; const v = document.createElement('video'); v.autoplay = true; v.playsInline = true; v.srcObject = stream; modal.appendChild(v); modal.classList.remove('hidden'); modal.addEventListener('click', () => modal.classList.add('hidden'), { once: true }); }
   function randomCode() { const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 6; i++) s += a[Math.floor(Math.random() * a.length)]; return s; }
 
-  storageGet(['tvSquadShareTrades', 'tvSquadMinMode', 'tvSquadServer', 'tvSquadSizes'], (r) => {
+  storageGet(['tvSquadShareTrades', 'tvSquadMinMode', 'tvSquadServer', 'tvSquadSizes', 'tvSquadPos'], (r) => {
     shareTrades = !!(r && r.tvSquadShareTrades);
     if (r && r.tvSquadMinMode) minMode = r.tvSquadMinMode;
     if (r && r.tvSquadServer) serverUrl = r.tvSquadServer;
     if (r && r.tvSquadSizes) manualSize = r.tvSquadSizes;
+    if (r && r.tvSquadPos) pos = r.tvSquadPos;
     renderControls(); syncSettings(); applyView();
   });
   applyView();
