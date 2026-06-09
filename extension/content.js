@@ -561,13 +561,14 @@
 
   // Drag to move (header in panel/large, anywhere in min), drag the grip to resize,
   // click the minimized pill to restore. Position & size are kept on screen + saved.
+  function clampLT(l, t) {
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    return { l: Math.max(8, Math.min(window.innerWidth - w - 8, l)), t: Math.max(8, Math.min(window.innerHeight - h - 8, t)) };
+  }
   function applyPos() {
     if (!pos) return;
-    const w = panel.offsetWidth, h = panel.offsetHeight;
-    const l = Math.max(8, Math.min(window.innerWidth - w - 8, pos.l));
-    const t = Math.max(8, Math.min(window.innerHeight - h - 8, pos.t));
-    pos = { l, t };
-    panel.style.left = l + 'px'; panel.style.top = t + 'px'; panel.style.right = 'auto'; panel.style.bottom = 'auto';
+    pos = clampLT(pos.l, pos.t);
+    panel.style.left = pos.l + 'px'; panel.style.top = pos.t + 'px'; panel.style.right = 'auto'; panel.style.bottom = 'auto';
   }
   (() => {
     let rs = null, drag = null;
@@ -579,9 +580,10 @@
     panel.addEventListener('mousedown', (e) => {
       if (e.target.closest('.rgrip')) return;
       if (view === 'min') { if (e.target.closest('button')) return; }
-      else { if (!e.target.closest('.hdr') || e.target.closest('button,input')) return; }
+      else if (!e.target.closest('.hdr') || e.target.closest('button,input')) return;
       const r = panel.getBoundingClientRect();
-      drag = { sx: e.clientX, sy: e.clientY, l: r.left, t: r.top, moved: false };
+      // In min, dragging is transient (not saved) — it always respawns bottom-right.
+      drag = { sx: e.clientX, sy: e.clientY, l: r.left, t: r.top, moved: false, min: view === 'min' };
       e.preventDefault();
     });
     window.addEventListener('mousemove', (e) => {
@@ -595,14 +597,18 @@
       } else if (drag) {
         const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
         if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
-        if (drag.moved) { pos = { l: drag.l + dx, t: drag.t + dy }; applyPos(); }
+        if (drag.moved) {
+          const c = clampLT(drag.l + dx, drag.t + dy);
+          if (drag.min) { panel.style.left = c.l + 'px'; panel.style.top = c.t + 'px'; panel.style.right = 'auto'; panel.style.bottom = 'auto'; }
+          else { pos = c; applyPos(); }
+        }
       }
     });
     window.addEventListener('mouseup', () => {
       if (rs) { rs = null; storageSet({ tvSquadSizes: manualSize, tvSquadPos: pos }); }
-      else if (drag) { const m = drag.moved; drag = null; if (m) storageSet({ tvSquadPos: pos }); else if (view === 'min') setView(lastSize); }
+      else if (drag) { const d = drag; drag = null; if (d.moved && !d.min) storageSet({ tvSquadPos: pos }); else if (!d.moved && view === 'min') setView(lastSize); }
     });
-    window.addEventListener('resize', () => { if (pos) applyPos(); });
+    window.addEventListener('resize', () => { if (pos && view !== 'min') applyPos(); });
   })();
 
   $('expandBtn').addEventListener('click', (e) => { e.stopPropagation(); setView(view === 'large' ? 'panel' : 'large'); });
@@ -623,7 +629,8 @@
     else { panel.style.width = ''; panel.style.height = ''; }
     const b = $('body'); if (b) { b._minVid = null; }
     if (view === 'min') renderMin(); else renderBody();
-    if (pos) applyPos();
+    // Min always respawns bottom-right (CSS); panel/large restore the saved position.
+    if (view !== 'min' && pos) applyPos();
     else { panel.style.left = ''; panel.style.top = ''; panel.style.right = ''; panel.style.bottom = ''; }
   }
 
