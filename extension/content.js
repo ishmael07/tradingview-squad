@@ -31,6 +31,8 @@
   let joinMode = 'private';    // join form tab: 'private' | 'public'
   let connecting = false;      // a connect attempt is in flight
   let switching = false;       // an intentional room switch is in flight
+  let retries = 0;             // connect retry counter (handles Render cold starts)
+  let retryTimer = null;
   let minMode = 'speaker';     // minimized view: 'speaker' (active speaker) | 'multi'
   let activeSpeaker = null;    // id of current/last speaker ('self' or a peer id)
   const DEFAULT_SERVER = 'wss://tradingview-squad-signaling.onrender.com'; // overridden by Settings → Server URL
@@ -257,11 +259,24 @@
     else if (msg.type === 'signal') { onSignal(msg.from, msg.data); }
   }
   function handleStatus(state) {
-    if (state === 'open') { connected = true; connecting = false; switching = false; applyView(); if (shareTrades) startTradeWatch(); }
-    else if (state === 'closed' || state === 'error') {
+    if (state === 'open') {
+      connected = true; connecting = false; switching = false; retries = 0;
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+      applyView(); if (shareTrades) startTradeWatch();
+    } else if (state === 'closed' || state === 'error') {
       if (switching) return; // expected while moving between rooms
       if (connected) teardown(state === 'error' ? 'Connection error' : 'Disconnected');
-      else if (connecting) { connecting = false; setStatus("Can't reach server. Is it running on localhost:8080?"); }
+      else if (connecting) {
+        // Retry — a Render free instance can take ~30–50s to wake from sleep.
+        if (retries < 18) {
+          retries++;
+          setStatus(retries < 3 ? 'Connecting…' : `Waking server… (${retries})`);
+          retryTimer = setTimeout(() => { if (connecting && !connected) openConnection(); }, 3000);
+        } else {
+          connecting = false;
+          setStatus("Can't reach " + serverUrl + " — check ⚙ Settings → Server URL");
+        }
+      }
     }
   }
 
@@ -285,8 +300,9 @@
   }
 
   // ---- join / leave ---------------------------------------------------------
+  function openConnection() { connecting = true; bg({ type: 'open', room, name: myName, id: myId, symbol: currentSymbol, url: serverUrl }); }
   async function join() {
-    if (!myName || !room) return; connecting = true; setStatus('Connecting…');
+    if (!myName || !room) return; setStatus('Connecting…');
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       const t = localStream.getAudioTracks()[0]; if (t) t.enabled = !muted;
@@ -295,7 +311,7 @@
     } catch (_) { localStream = null; setStatus('Mic blocked — presence only'); }
     currentSymbol = detectSymbol();
     storageSet({ tvSquadName: myName, tvSquadRoom: room });
-    bg({ type: 'open', room, name: myName, id: myId, symbol: currentSymbol, url: serverUrl });
+    retries = 0; openConnection();
   }
   function teardown(reason) {
     connected = false; stopTradeWatch(); bg({ type: 'close' });
@@ -303,6 +319,7 @@
     [screenStream, camStream, localStream].forEach((s) => { if (s) s.getTracks().forEach((t) => t.stop()); });
     screenStream = camStream = localStream = null; selfAnalyser = null; pinnedStreamId = null; view = 'panel';
     isPublic = false; followChart = false; roomLabel = ''; connecting = false; switching = false;
+    retries = 0; if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
     applyView(); if (reason) setStatus(reason);
   }
 
