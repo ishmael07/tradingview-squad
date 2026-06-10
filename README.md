@@ -1,4 +1,4 @@
-# TradingView Squad
+# TradingTalk
 
 "Discord for your TradingView charts." A Chrome extension that overlays a small,
 clean panel on TradingView so you and your friends can:
@@ -62,7 +62,7 @@ npm start          # listens on ws://localhost:8080
 1. Open `chrome://extensions`
 2. Enable **Developer mode** (top right)
 3. Click **Load unpacked** → select the `extension/` folder
-4. Open `https://www.tradingview.com/chart/` — the **Squad** panel appears bottom-right
+4. Open `https://www.tradingview.com/chart/` — the **TradingTalk** panel appears bottom-right
 
 ### 3. Test with a friend (or two browser profiles)
 

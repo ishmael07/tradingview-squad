@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2128"/>
+      <stop offset="1" stop-color="#0c0d10"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="128" height="128" rx="28" fill="url(#bg)"/>
+  <g fill="#ffffff">
+    <!-- T -->
+    <rect x="18" y="34" width="44" height="15" rx="2"/>
+    <rect x="32" y="44" width="16" height="50" rx="2"/>
+    <!-- speaker cone -->
+    <path d="M66 56 H74 L86 46 V82 L74 72 H66 Z"/>
+  </g>
+  <g fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round">
+    <path d="M92 55 A12 12 0 0 1 92 73"/>
+    <path d="M100 48 A20 20 0 0 1 100 80"/>
+  </g>
+</svg>

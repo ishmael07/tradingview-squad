@@ -3,217 +3,350 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>TradingView Squad — trade together, live</title>
-<meta name="description" content="A Chrome extension that puts you on a voice + video call with your friends right inside TradingView. See each other's charts, share screens, and call out trades in real time." />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="icon" type="image/png" sizes="128x128" href="icon128.png" />
+<link rel="apple-touch-icon" href="icon128.png" />
+<title>TradingTalk — trade together, live on the chart</title>
+<meta name="description" content="A Chrome extension that puts you on a voice, video and screen-share call with your friends right inside TradingView." />
 <style>
   :root {
-    --bg: #0c0d10; --bg2: #16181d; --card: #16181d; --border: #262a32;
-    --text: #e8eaed; --muted: #8b919c; --dim: #6f7682;
-    --blue: #3b82f6; --blue2: #2563eb; --green: #4ade80; --red: #f87171;
+    --bg: #0c0d10; --surface: #16181d; --text: #e8eaed; --muted: #8b919c; --dim: #6f7682;
+    --border: #262a32; --line: #20242b; --accent: #2563eb; --green: #4ade80;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg); color: var(--text); line-height: 1.55; -webkit-font-smoothing: antialiased; }
+    background: var(--bg); color: var(--text); line-height: 1.6; -webkit-font-smoothing: antialiased; }
   a { color: inherit; text-decoration: none; }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
 
-  /* nav */
-  nav { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
-  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
-  .brand .logo { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #2563eb, #4ade80);
-    display: flex; align-items: center; justify-content: center; }
-  .navlinks { display: flex; gap: 26px; align-items: center; color: var(--muted); font-size: 14px; }
-  .navlinks a:hover { color: var(--text); }
+  /* top bar */
+  header.bar { display: flex; align-items: center; justify-content: space-between; padding-top: 22px; padding-bottom: 22px; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15px; }
+  .brand .logo { width: 26px; height: 26px; border-radius: 7px; display: block; }
+  header.bar .links { display: flex; gap: 24px; align-items: center; color: var(--muted); font-size: 14px; }
+  header.bar .links a:hover { color: var(--text); }
+
+  /* buttons */
+  .cta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; font-size: 15px;
+    padding: 12px 20px; border-radius: 10px; cursor: pointer; border: 1px solid transparent;
+    transition: background .15s, border-color .15s; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary:hover { background: #2f74e6; }
+  .btn.ghost { background: transparent; color: var(--text); border-color: var(--border); }
+  .btn.ghost:hover { border-color: #3a414d; background: #14161b; }
+  .microcopy { color: var(--dim); font-size: 13px; margin-top: 16px; }
 
   /* hero */
-  .hero { padding: 70px 0 60px; display: grid; grid-template-columns: 1.05fr .95fr; gap: 48px; align-items: center; }
-  .tag { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--green);
-    background: #0f2a1b; border: 1px solid #1c4030; padding: 5px 11px; border-radius: 999px; margin-bottom: 22px; }
-  .tag .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
-  h1 { font-size: 52px; line-height: 1.06; letter-spacing: -1.4px; font-weight: 800; }
-  h1 .grad { background: linear-gradient(120deg, #5aa7ff, #4ade80); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .sub { color: var(--muted); font-size: 18px; margin: 20px 0 30px; max-width: 520px; }
-  .cta { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
-  .btn { display: inline-flex; align-items: center; gap: 10px; font-weight: 650; font-size: 15px; padding: 13px 22px;
-    border-radius: 11px; cursor: pointer; border: none; transition: transform .08s, background .15s; }
-  .btn:active { transform: translateY(1px); }
-  .btn.primary { background: var(--blue2); color: #fff; }
-  .btn.primary:hover { background: #2f74e6; }
-  .btn.ghost { background: #1b1e25; color: var(--text); border: 1px solid var(--border); }
-  .btn.ghost:hover { background: #222630; }
-  .microcopy { color: var(--dim); font-size: 13px; margin-top: 14px; }
-
-  /* hero mock */
-  .mock { background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
-    box-shadow: 0 24px 70px rgba(0,0,0,.5); }
-  .mock .mhdr { display: flex; align-items: center; gap: 8px; padding: 13px 15px; border-bottom: 1px solid #20242b; }
-  .mock .mhdr .t { font-weight: 650; font-size: 14px; flex: 1; }
-  .mock .mhdr .code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted);
-    background: #0f1115; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; }
-  .mock .mbody { padding: 14px; }
-  .row { display: flex; align-items: center; gap: 11px; padding: 7px 2px; }
-  .ava { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 13px; color: #fff; flex: 0 0 auto; }
-  .ava.s { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--green); }
-  .who .nm { font-weight: 600; font-size: 14px; }
-  .who .sym { display: inline-flex; align-items: center; gap: 5px; font-family: ui-monospace, Menlo, monospace;
-    font-size: 11px; color: #cbd2da; background: #18222f; border: 1px solid #2b3a4d; border-radius: 6px; padding: 1px 7px; margin-top: 3px; }
-  .who .sym svg { stroke: #5aa7ff; }
-  .divider { height: 1px; background: #20242b; margin: 12px 0; }
-  .bar { display: flex; gap: 9px; justify-content: center; }
-  .ic { width: 38px; height: 38px; border-radius: 50%; background: #21262e; display: flex; align-items: center; justify-content: center; color: var(--text); }
-  .ic.on { background: var(--blue2); }
-  .ic.red { background: #3a2024; color: var(--red); }
-  .trades { margin-top: 12px; }
-  .trow { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 8px; background: #0f1115; margin-top: 6px; }
-  .ttag { font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 5px; }
-  .ttag.buy { background: #0f2a1b; color: var(--green); } .ttag.sell { background: #2c1417; color: var(--red); }
-  .trow .tx { font-size: 12px; } .trow .tx b { color: var(--text); } .trow .tx span { color: var(--muted); }
+  .hero { padding-top: 56px; padding-bottom: 64px; }
+  .hero-grid { display: grid; grid-template-columns: 1fr 520px; gap: 56px; align-items: center; }
+  h1 { font-size: 48px; line-height: 1.08; letter-spacing: -1.6px; font-weight: 800; }
+  .sub { color: var(--muted); font-size: 18px; margin: 20px 0 30px; max-width: 440px; }
+  .source { display: inline-block; color: var(--dim); font-size: 13.5px; margin-top: 16px; }
+  .source:hover { color: var(--muted); }
 
   /* sections */
-  section { padding: 64px 0; }
-  .eyebrow { color: var(--blue); font-weight: 700; font-size: 13px; letter-spacing: .5px; text-transform: uppercase; }
-  h2 { font-size: 34px; letter-spacing: -.8px; margin: 10px 0 14px; font-weight: 800; }
-  .lead { color: var(--muted); font-size: 17px; max-width: 620px; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 40px; }
-  .feat { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
-  .feat .fi { width: 40px; height: 40px; border-radius: 10px; background: #11161f; border: 1px solid #223; display: flex;
-    align-items: center; justify-content: center; margin-bottom: 14px; color: #7db8ff; }
-  .feat h3 { font-size: 16px; margin-bottom: 7px; }
+  .sec { border-top: 1px solid var(--line); }
+  .sec.features { padding: 64px 0; }
+  .sec.install { padding: 64px 0 16px; }
+  .eyebrow { color: var(--accent); font-weight: 700; font-size: 12.5px; letter-spacing: .6px; text-transform: uppercase; }
+  h2 { font-size: 30px; letter-spacing: -.8px; margin: 12px 0 12px; font-weight: 800; }
+  .lead { color: var(--muted); font-size: 16.5px; max-width: 560px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 36px; }
+  .feat { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
+  .feat .fi { width: 38px; height: 38px; border-radius: 10px; background: #11161f; border: 1px solid #223047;
+    display: flex; align-items: center; justify-content: center; margin-bottom: 14px; color: #7db8ff; }
+  .feat h3 { font-size: 15.5px; margin-bottom: 6px; letter-spacing: -.2px; }
   .feat p { color: var(--muted); font-size: 14px; }
 
-  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 40px; }
-  .step { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; position: relative; }
-  .step .n { width: 30px; height: 30px; border-radius: 8px; background: var(--blue2); color: #fff; font-weight: 800;
-    display: flex; align-items: center; justify-content: center; margin-bottom: 14px; }
-  .step h3 { font-size: 15px; margin-bottom: 6px; }
-  .step p { color: var(--muted); font-size: 14px; }
-  .step code { background: #0f1115; border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; font-size: 12px; }
+  /* install */
+  .installgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 36px; }
+  .stepcard { position: relative; display: flex; flex-direction: column; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 16px; padding: 24px 22px; overflow: hidden;
+    transition: border-color .15s, transform .15s; }
+  .stepcard:hover { border-color: #2f3946; transform: translateY(-2px); }
+  .stepcard .bignum { position: absolute; top: 6px; right: 16px; font-size: 72px; font-weight: 800; line-height: 1;
+    color: rgba(125,184,255,.07); pointer-events: none; }
+  .stepcard .si { width: 40px; height: 40px; border-radius: 11px; background: #11161f; border: 1px solid #223047;
+    display: flex; align-items: center; justify-content: center; color: #7db8ff; margin-bottom: 15px; }
+  .stepcard h3 { font-size: 16px; margin-bottom: 7px; letter-spacing: -.2px; }
+  .stepcard p { color: var(--muted); font-size: 14px; }
+  .stepcard code { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px;
+    font-size: 13px; font-family: ui-monospace, Menlo, monospace; color: #cbd2da; }
+  .dlbtn { display: inline-flex; align-items: center; gap: 10px; margin-top: 18px; align-self: flex-start;
+    padding: 11px 17px; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 600; font-size: 14.5px;
+    box-shadow: 0 6px 18px rgba(37,99,235,.32); transition: background .15s, box-shadow .15s; }
+  .dlbtn:hover { background: #2f74e6; box-shadow: 0 8px 22px rgba(37,99,235,.42); }
+  .dlbtn small { font-weight: 500; font-size: 11px; opacity: .72; }
 
-  .note { background: #14110a; border: 1px solid #3a2f12; color: #d9b974; border-radius: 12px; padding: 16px 18px;
-    font-size: 14px; margin-top: 28px; }
+  footer { text-align: center; color: var(--dim); font-size: 13px; padding: 44px 0 48px; border-top: 1px solid var(--line); }
+  footer a:hover { color: var(--muted); }
 
-  footer { border-top: 1px solid var(--border); padding: 30px 0; color: var(--dim); font-size: 13px;
-    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  /* ====== Product mockup: extension docked on a faux TradingView chart ====== */
+  .mockup { position: relative; width: 100%; border: 1px solid var(--border); border-radius: 16px;
+    overflow: hidden; background: #0a0b0e; box-shadow: 0 28px 80px rgba(0,0,0,.6); }
+  .chart-head { display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+    border-bottom: 1px solid var(--line); background: #0e1014; }
+  .chart-head .sym { font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; }
+  .chart-head .tf { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+  .chart-head .chg { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--green); }
+  .chart-head .tools { margin-left: auto; display: flex; gap: 6px; }
+  .chart-head .tools i { width: 9px; height: 9px; border-radius: 50%; background: #2a2f38; }
+  .chart-body { position: relative; height: 452px; background: linear-gradient(180deg, #0d0f13, #0a0b0e); }
+  .chart-body > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .watermark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 96px; font-weight: 800; letter-spacing: 2px; color: rgba(255,255,255,.035); pointer-events: none; }
+  .pricetag { position: absolute; right: 14px; top: 70px; font-family: ui-monospace, Menlo, monospace;
+    font-size: 11px; font-weight: 700; color: var(--green); background: #0f2a1b; border: 1px solid #1c4030;
+    border-radius: 5px; padding: 2px 7px; }
+  .dock { position: absolute; right: 16px; bottom: 16px; transform: scale(.80); transform-origin: bottom right; }
 
-  @media (max-width: 860px) {
-    .hero { grid-template-columns: 1fr; padding: 40px 0; } h1 { font-size: 40px; }
-    .grid, .steps { grid-template-columns: 1fr; } .navlinks { display: none; }
+  /* Faithful replica of the real extension panel (mirrors extension/content.js) */
+  .tt-device { font-size: 13px; color: #e8eaed; }
+  .tt-device .panel { width: 304px; background: #16181d; color: #e8eaed; border: 1px solid #2b2f37;
+    border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.6); overflow: hidden; }
+  .tt-device .hdr { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #20242b; }
+  .tt-device .hdr .title { font-weight: 650; flex: 1; letter-spacing: .2px; }
+  .tt-device .hdr .code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #8b919c;
+    background: #0f1115; border: 1px solid #262a32; border-radius: 6px; padding: 2px 7px; }
+  .tt-device .ix { color: #8b919c; display: flex; }
+  .tt-device .body { padding: 14px; }
+  .tt-device .rhd { font-size: 10px; color: #7a818c; text-transform: uppercase; letter-spacing: .6px;
+    font-weight: 700; margin: 0 2px 8px; }
+  .tt-device ul.roster { list-style: none; }
+  .tt-device ul.roster li { display: flex; align-items: center; gap: 10px; padding: 7px 2px; }
+  .tt-device .ava { width: 30px; height: 30px; border-radius: 50%; color: #fff; display: flex; align-items: center;
+    justify-content: center; font-weight: 700; font-size: 12px; flex: 0 0 auto; }
+  .tt-device .ava.spk { box-shadow: 0 0 0 2px #16181d, 0 0 0 4px #22c55e; }
+  .tt-device .who { flex: 1; min-width: 0; }
+  .tt-device .who .nm { font-weight: 600; }
+  .tt-device .who .you { color: #6f7682; font-weight: 400; font-size: 11px; }
+  .tt-device .who .sub { display: flex; align-items: center; gap: 5px; margin: 3px 0 0; max-width: none;
+    color: inherit; font-size: 13px; }
+  .tt-device .symtxt { display: inline-flex; align-items: center; gap: 4px; font-family: ui-monospace, Menlo, monospace;
+    font-size: 11px; color: #cbd2da; background: #18222f; border: 1px solid #2b3a4d; border-radius: 6px; padding: 2px 7px; }
+  .tt-device .symtxt svg { color: #5aa7ff; flex: 0 0 auto; }
+  .tt-device .bar { display: flex; gap: 10px; justify-content: center; margin-top: 14px; padding-top: 14px;
+    border-top: 1px solid #20242b; }
+  .tt-device .ic { width: 40px; height: 40px; border-radius: 50%; background: #21262e; color: #e8eaed;
+    display: flex; align-items: center; justify-content: center; }
+  .tt-device .ic.on { background: #2563eb; color: #fff; }
+  .tt-device .ic.danger { background: #3a2024; color: #f87171; }
+  .tt-device .trades { margin-top: 14px; padding-top: 14px; border-top: 1px solid #20242b; }
+  .tt-device .tradesHead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .tt-device .tradesHead .lab { font-size: 10px; color: #7a818c; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+  .tt-device .switch { display: flex; align-items: center; gap: 7px; }
+  .tt-device .switch .swtxt { font-size: 11px; color: #4ade80; }
+  .tt-device .track { width: 32px; height: 18px; border-radius: 999px; background: #16a34a; position: relative; }
+  .tt-device .knob { position: absolute; top: 2px; left: 16px; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+  .tt-device .feed { display: flex; flex-direction: column; gap: 2px; }
+  .tt-device .trow { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 9px; }
+  .tt-device .ttag { font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 5px; letter-spacing: .3px; flex: 0 0 auto; }
+  .tt-device .ttag.buy { background: #0f2a1b; color: #4ade80; }
+  .tt-device .ttag.sell { background: #2c1417; color: #f87171; }
+  .tt-device .tleft { flex: 1; min-width: 0; }
+  .tt-device .tright { text-align: right; flex: 0 0 auto; }
+  .tt-device .tsym { font-weight: 700; font-size: 13px; color: #e8eaed; }
+  .tt-device .tsub { font-size: 10.5px; color: #6f7682; margin-top: 1px; }
+  .tt-device .tval { font-size: 12px; font-weight: 600; color: #cbd2da; font-family: ui-monospace, Menlo, monospace; }
+  .tt-device .tsub2 { font-size: 11px; margin-top: 1px; }
+  .tt-device .opt { font-family: ui-monospace, Menlo, monospace; font-size: 11px; padding: 0 4px; border-radius: 4px; }
+  .tt-device .opt.call { background: #0f2a1b; color: #4ade80; }
+
+  @media (max-width: 920px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+    h1 { font-size: 38px; }
+    .grid, .installgrid { grid-template-columns: 1fr 1fr; }
+    header.bar .links a.nav { display: none; }
+  }
+  @media (max-width: 560px) {
+    h1 { font-size: 32px; }
+    .grid, .installgrid { grid-template-columns: 1fr; }
+    .dock { transform: scale(.72); }
+    .chart-body { height: 430px; }
   }
 </style>
 </head>
 <body>
-<div class="wrap">
 
-  <nav>
-    <div class="brand">
-      <span class="logo">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/></svg>
-      </span>
-      TradingView Squad
-    </div>
-    <div class="navlinks">
-      <a href="#features">Features</a>
-      <a href="#install">Install</a>
-      <a href="#" id="navAdd">Add to Chrome</a>
-    </div>
-  </nav>
+<header class="bar wrap">
+  <div class="brand">
+    <img class="logo" src="favicon.svg" width="26" height="26" alt="TradingTalk logo" />
+    TradingTalk
+  </div>
+  <div class="links">
+    <a class="nav" href="#features">Features</a>
+    <a class="nav" href="#install">Install</a>
+    <a href="https://github.com/ishmael07/tradingtalk" target="_blank" rel="noopener">GitHub</a>
+  </div>
+</header>
 
-  <!-- HERO -->
-  <header class="hero">
+<!-- HERO -->
+<section class="hero wrap">
+  <div class="hero-grid">
     <div>
-      <span class="tag"><span class="dot"></span> Live voice while you trade</span>
-      <h1>Trade together,<br><span class="grad">right on the chart.</span></h1>
-      <p class="sub">A Chrome extension that drops you and your friends into a voice + video call inside TradingView. See who's on what chart, share your screen, and call out entries in real time.</p>
+      <h1>Trade together,<br>right on the chart.</h1>
+      <p class="sub">Voice, video, and screen share with your friends — right inside TradingView. See who's on which symbol and call out trades in real time.</p>
       <div class="cta">
-        <button class="btn primary" id="addBtn">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>
+        <a class="btn primary" href="#install">
+          <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M24,24 L4.95,13 A22,22 0 0 1 43.05,13 Z" fill="#EA4335"/>
+            <path d="M24,24 L43.05,13 A22,22 0 0 1 24,46 Z" fill="#FBBC04"/>
+            <path d="M24,24 L24,46 A22,22 0 0 1 4.95,13 Z" fill="#34A853"/>
+            <circle cx="24" cy="24" r="10" fill="#fff"/>
+            <circle cx="24" cy="24" r="8" fill="#4285F4"/>
+          </svg>
           Add to Chrome — Free
-        </button>
+        </a>
         <a class="btn ghost" href="#features">See how it works</a>
       </div>
-      <p class="microcopy">Works on tradingview.com · Voice, video & screen share · Free</p>
+      <p class="microcopy">Works on tradingview.com · Voice, video &amp; screen share · Free</p>
     </div>
 
-    <!-- product mock -->
-    <div class="mock">
-      <div class="mhdr">
-        <span class="t">TradingView Squad</span>
-        <span class="code">🌐 SPY</span>
+    <!-- Product mockup -->
+    <div class="mockup">
+      <div class="chart-head">
+        <span class="sym">AMEX:SPY</span>
+        <span class="tf">1D</span>
+        <span class="chg">+1.24%</span>
+        <span class="tools"><i></i><i></i><i></i></span>
       </div>
-      <div class="mbody">
-        <div class="row">
-          <div class="ava s" style="background:#b6359c">IS</div>
-          <div class="who"><div class="nm">ishyfishy <span style="color:var(--dim);font-weight:400;font-size:12px">(you)</span></div>
-            <span class="sym"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>AMEX:SPY</span></div>
-        </div>
-        <div class="row">
-          <div class="ava" style="background:#2f7d4f">MJ</div>
-          <div class="who"><div class="nm">mjtrades</div>
-            <span class="sym"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>NASDAQ:TSLA</span></div>
-        </div>
-        <div class="divider"></div>
-        <div class="bar">
-          <div class="ic on"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></div>
-          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
-          <div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/></svg></div>
-          <div class="ic red"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></div>
-        </div>
-        <div class="trades">
-          <div class="trow"><span class="ttag buy">BUY</span><span class="tx"><b>mjtrades</b> opened TSLA <span>@ 248.50 · 7:58 PM</span></span></div>
-          <div class="trow"><span class="ttag sell">SELL</span><span class="tx"><b>ishyfishy</b> closed SPY <span>@ 739.31</span></span></div>
+      <div class="chart-body">
+        <div class="watermark">SPY</div>
+        <svg viewBox="0 0 600 384" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#4ade80" stop-opacity=".20"/>
+              <stop offset="1" stop-color="#4ade80" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <line x1="0" y1="96"  x2="600" y2="96"  stroke="#161a20"/>
+          <line x1="0" y1="180" x2="600" y2="180" stroke="#161a20"/>
+          <line x1="0" y1="264" x2="600" y2="264" stroke="#161a20"/>
+          <line x1="0" y1="348" x2="600" y2="348" stroke="#161a20"/>
+          <path d="M0,300 L30,290 L55,312 L80,280 L110,288 L140,250 L170,268 L200,235 L230,255 L260,214 L290,228 L320,198 L350,212 L380,172 L410,192 L440,158 L470,132 L500,150 L530,118 L560,126 L585,96 L600,96 L600,384 L0,384 Z"
+                fill="url(#fill)"/>
+          <path d="M0,300 L30,290 L55,312 L80,280 L110,288 L140,250 L170,268 L200,235 L230,255 L260,214 L290,228 L320,198 L350,212 L380,172 L410,192 L440,158 L470,132 L500,150 L530,118 L560,126 L585,96"
+                fill="none" stroke="#4ade80" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+          <circle cx="585" cy="96" r="9" fill="#4ade80" fill-opacity=".18"/>
+          <circle cx="585" cy="96" r="3.5" fill="#4ade80"/>
+        </svg>
+        <span class="pricetag">739.31</span>
+
+        <!-- the extension, docked bottom-right exactly as in product -->
+        <div class="dock">
+          <div class="tt-device">
+            <div class="panel">
+              <div class="hdr">
+                <span class="title">TradingTalk</span>
+                <span class="code">SPY</span>
+                <span class="ix"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+                <span class="ix"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
+              </div>
+              <div class="body">
+                <div class="rhd">In this room · 3</div>
+                <ul class="roster">
+                  <li>
+                    <div class="ava spk" style="background:#b6359c">IS</div>
+                    <div class="who"><div class="nm">ishyfishy <span class="you">(you)</span></div>
+                      <div class="sub"><span class="symtxt"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>AMEX:SPY</span></div>
+                    </div>
+                  </li>
+                  <li>
+                    <div class="ava" style="background:#2f7d4f">MJ</div>
+                    <div class="who"><div class="nm">mjtrades</div>
+                      <div class="sub"><span class="symtxt"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>NASDAQ:TSLA</span></div>
+                    </div>
+                  </li>
+                  <li>
+                    <div class="ava" style="background:#3a5bd0">DK</div>
+                    <div class="who"><div class="nm">dahlia.k</div>
+                      <div class="sub"><span class="symtxt"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>AMEX:SPY</span></div>
+                    </div>
+                  </li>
+                </ul>
+                <div class="bar">
+                  <div class="ic on"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></div>
+                  <div class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
+                  <div class="ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+                  <div class="ic danger"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></div>
+                </div>
+                <div class="trades">
+                  <div class="tradesHead">
+                    <span class="lab">Recent callouts</span>
+                    <span class="switch"><span class="swtxt">Sharing</span><span class="track"><span class="knob"></span></span></span>
+                  </div>
+                  <div class="feed">
+                    <div class="trow"><span class="ttag buy">BUY</span><div class="tleft"><div class="tsym">TSLA <span class="opt call">C 250</span></div><div class="tsub">mjtrades · 7:58 PM</div></div><div class="tright"><div class="tval">$2.41</div><div class="tsub2" style="color:#6f7682">limit</div></div></div>
+                    <div class="trow"><span class="ttag sell">SELL</span><div class="tleft"><div class="tsym">SPY</div><div class="tsub">ishyfishy · 7:54 PM</div></div><div class="tright"><div class="tval">739.31</div><div class="tsub2" style="color:#4ade80">+1.2%</div></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
-  </header>
+  </div>
+</section>
 
-  <!-- FEATURES -->
-  <section id="features">
+<!-- FEATURES -->
+<section id="features" class="sec features">
+  <div class="wrap">
     <span class="eyebrow">Why it's different</span>
     <h2>Your trading desk, with your crew on it.</h2>
     <p class="lead">No more sharing screenshots in a group chat. Hop on, talk, and watch each other trade the same charts live.</p>
     <div class="grid">
-      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></div><h3>Live voice & video</h3><p>Crystal-clear peer-to-peer audio and camera with your whole group, right in the chart tab.</p></div>
-      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/></svg></div><h3>Screen share</h3><p>Show your setup, a tab, or your full screen. Pin anyone's share to the main stage.</p></div>
-      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg></div><h3>Live chart presence</h3><p>See exactly which symbol each person is viewing, updating in real time as they switch.</p></div>
-      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/></svg></div><h3>Trade callouts</h3><p>Broadcast buy/sell, stock or option (call/put, strike, expiry), market/limit — to the whole room instantly.</p></div>
-      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3>Public ticker rooms</h3><p>Join the live room for whatever you're watching — everyone on SPY in one place. Auto-follow your chart.</p></div>
-      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4h6l-1 7 3 2v2h-5v5l-1 1-1-1v-5H4v-2l3-2-1-7z"/></svg></div><h3>Three sizes, always docked</h3><p>Minimize to an active-speaker bubble, a tidy side panel, or a full call view — pinned bottom-right.</p></div>
+      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></div><h3>Live voice &amp; video</h3><p>Crystal-clear peer-to-peer audio and camera with your whole group, right in the chart tab.</p></div>
+      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/></svg></div><h3>Screen share</h3><p>Show your setup, a tab, or your full screen. Pin anyone's share to the main stage.</p></div>
+      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg></div><h3>Live chart presence</h3><p>See exactly which symbol each person is viewing, updating in real time as they switch.</p></div>
+      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/></svg></div><h3>Trade callouts</h3><p>Broadcast buy/sell, stock or option (call/put, strike, expiry), market/limit — to the whole room instantly.</p></div>
+      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3>Public ticker rooms</h3><p>Join the live room for whatever you're watching — everyone on SPY in one place. Auto-follow your chart.</p></div>
+      <div class="feat"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 7 3 2v2h-5v5l-1 1-1-1v-5H4v-2l3-2-1-7z"/></svg></div><h3>Three sizes, always docked</h3><p>Minimize to an active-speaker bubble, a tidy side panel, or a full call view — pinned bottom-right.</p></div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- INSTALL -->
-  <section id="install">
+<!-- INSTALL -->
+<section id="install" class="sec install">
+  <div class="wrap">
     <span class="eyebrow">Get started</span>
     <h2>Install in under a minute.</h2>
-    <p class="lead">Once it's on the Chrome Web Store this is one click. Until then, you can load it manually today.</p>
-    <div class="steps">
-      <div class="step"><div class="n">1</div><h3>Download</h3><p>Grab the extension <a href="tradingview-squad.zip" style="color:#7db8ff">.zip</a> and unzip it.</p></div>
-      <div class="step"><div class="n">2</div><h3>Load it</h3><p>Open <code>chrome://extensions</code>, turn on <b>Developer mode</b>, click <b>Load unpacked</b>, pick the <code>extension</code> folder.</p></div>
-      <div class="step"><div class="n">3</div><h3>Trade</h3><p>Open a TradingView chart, join a room (or a Public ticker room), allow your mic — you're on call.</p></div>
+    <p class="lead">It's not on the Chrome Web Store yet, so you load it manually today — three quick steps.</p>
+    <div class="installgrid">
+      <div class="stepcard">
+        <span class="bignum">1</span>
+        <div class="si"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+        <h3>Download &amp; unzip</h3>
+        <p>Grab the extension and unzip it anywhere on your computer.</p>
+        <a class="dlbtn" href="tradingview-squad.zip">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download .zip <small>~20 KB</small>
+        </a>
+      </div>
+      <div class="stepcard">
+        <span class="bignum">2</span>
+        <div class="si"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11H19V7a2 2 0 0 0-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4a2 2 0 0 0-2 2v3.8h1.5a2.7 2.7 0 0 1 0 5.4H2V20a2 2 0 0 0 2 2h3.8v-1.5a2.7 2.7 0 0 1 5.4 0V22H17a2 2 0 0 0 2-2v-4h1.5a2.5 2.5 0 0 0 0-5z"/></svg></div>
+        <h3>Load it in Chrome</h3>
+        <p>Open <code>chrome://extensions</code>, turn on <b>Developer mode</b>, click <b>Load unpacked</b>, and pick the <code>extension</code> folder.</p>
+      </div>
+      <div class="stepcard">
+        <span class="bignum">3</span>
+        <div class="si"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="15 7 21 7 21 13"/></svg></div>
+        <h3>Open a chart</h3>
+        <p>Head to a <code>tradingview.com</code> chart, join a room, and allow your mic — you're on the call.</p>
+      </div>
     </div>
-    <div class="note">⚠️ <b>"Add to Chrome" goes live with the Chrome Web Store listing.</b> Google only allows one-click install from the Web Store, so for now use the manual steps above. Once published, the button here will install it instantly.</div>
-  </section>
+  </div>
+</section>
 
-  <footer>
-    <span>© <span id="yr"></span> TradingView Squad · Not affiliated with TradingView.</span>
-    <span>Made for traders who'd rather be on a call.</span>
-  </footer>
+<footer>
+  © <span id="yr"></span> TradingTalk · Not affiliated with TradingView · <a href="https://github.com/ishmael07/tradingtalk" target="_blank" rel="noopener">GitHub</a>
+</footer>
 
-</div>
-
-<script>
-  document.getElementById('yr').textContent = new Date().getFullYear();
-  // Replace this with your Chrome Web Store URL once published, then the button installs in one click.
-  var CHROME_STORE_URL = "";
-  function handleAdd(e){
-    if (e) e.preventDefault();
-    if (CHROME_STORE_URL) { window.location.href = CHROME_STORE_URL; }
-    else { document.getElementById('install').scrollIntoView({ behavior: 'smooth' }); }
-  }
-  document.getElementById('addBtn').addEventListener('click', handleAdd);
-  document.getElementById('navAdd').addEventListener('click', handleAdd);
-</script>
+<script>document.getElementById('yr').textContent = new Date().getFullYear();</script>
 </body>
 </html>
