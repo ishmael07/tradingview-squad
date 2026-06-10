@@ -1,4 +1,4 @@
-// TradingView Squad — signaling + presence server
+// TradingTalk — signaling + presence server
 // Rooms are joined by a share code. The server relays WebRTC signaling
 // (offer/answer/ICE) between peers and broadcasts presence (name + symbol).
 // Voice/screen media travels peer-to-peer over WebRTC, never through here.
@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 8080;
 // (Render/Railway/Fly) or a tunnel — the Node process itself stays plain ws.
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'content-type': 'text/plain' });
-  res.end('TradingView Squad signaling server is running.');
+  res.end('TradingTalk signaling server is running.');
 });
 const wss = new WebSocketServer({ server });
 
@@ -86,6 +86,7 @@ wss.on('connection', (ws) => {
           send(cc.ws, {
             type: 'trade', id: myId, event: msg.event,
             symbol: msg.symbol, side: msg.side, qty: msg.qty, avg: msg.avg,
+            pnl: msg.pnl, pct: msg.pct,
           });
         }
       }
@@ -118,5 +119,5 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`TradingView Squad signaling server listening on :${PORT}`);
+  console.log(`TradingTalk signaling server listening on :${PORT}`);
 });

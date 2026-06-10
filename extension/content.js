@@ -1,4 +1,4 @@
-// TradingView Squad — content script
+// TradingTalk — content script
 // One overlay element with THREE mutually-exclusive sizes (min → panel → large).
 // WebRTC mesh for voice + camera + screen share. Pin any video/screen to focus it.
 // Opt-in trade detection (accurate BUY/SELL with entry price, P&L, time) + callouts.
@@ -34,6 +34,8 @@
   let retries = 0;             // connect retry counter (handles Render cold starts)
   let retryTimer = null;
   let minMode = 'speaker';     // minimized view: 'speaker' (active speaker) | 'multi'
+  let pnlUnit = 'usd';         // gain/loss display: 'usd' (dollar) | 'pct' (percent)
+  let sessionPnl = 0, sessionPct = 0; // my cumulative realized P&L this session
   let activeSpeaker = null;    // id of current/last speaker ('self' or a peer id)
   const DEFAULT_SERVER = 'wss://tradingview-squad-signaling.onrender.com'; // overridden by Settings → Server URL
   let serverUrl = DEFAULT_SERVER;
@@ -109,7 +111,7 @@
   ] };
   function makePeer(id, name, symbol, polite, positions, media) {
     const pc = new RTCPeerConnection(RTC_CONFIG);
-    const peer = { id, name, symbol, pc, polite, makingOffer: false, ignoreOffer: false, speaking: false, audioEl: null, analyser: null, data: null, videoStreams: new Map(), media: media || {}, positions: positions || [] };
+    const peer = { id, name, symbol, pc, polite, makingOffer: false, ignoreOffer: false, speaking: false, audioEl: null, analyser: null, data: null, videoStreams: new Map(), media: media || {}, positions: positions || [], sessionPnl: 0, sessionPct: 0 };
     peers.set(id, peer);
     if (localStream) localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
     if (camStream) camStream.getVideoTracks().forEach((t) => pc.addTrack(t, camStream));
@@ -176,8 +178,15 @@
   let myPositions = [];
   let tradeTimer = null, tradeObserver = null, tradeDebounce = null;
   const feed = [];
-  const HEADER_RE = { symbol: /symbol|instrument|ticker/i, side: /side|direction/i, qty: /qty|quantity|size|amount|contracts|shares|units|pos/i, avg: /avg|average|entry|open price|price/i, pnl: /p\s*\/?\s*l|p&l|profit|pnl|gain/i };
-  function num(t) { if (t == null || t === '') return null; const m = String(t).replace(/[, ]/g, '').match(/-?\d+(\.\d+)?/); return m ? parseFloat(m[0]) : null; }
+  const HEADER_RE = { symbol: /symbol|instrument|ticker/i, side: /side|direction/i, qty: /qty|quantity|size|amount|contracts|shares|units|pos/i, last: /last|market\s*price|current\s*price|^mark$/i, avg: /avg|average|entry|open price|price/i, pnl: /p\s*\/?\s*l|p&l|profit|pnl|gain/i };
+  function num(t) {
+    if (t == null || t === '') return null;
+    let s = String(t).replace(/[,\s]/g, '').replace(/−/g, '-');
+    let neg = false;
+    if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); } // (3.40) = -3.40
+    const m = s.match(/-?\d+(\.\d+)?/); if (!m) return null;
+    const v = parseFloat(m[0]); return neg ? -Math.abs(v) : v;
+  }
   function normSide(t, qty) { const s = (t || '').toLowerCase(); if (/sell|short/.test(s)) return 'short'; if (/buy|long/.test(s)) return 'long'; if (qty != null) return qty < 0 ? 'short' : 'long'; return ''; }
   function gridRows(g) { let r = [...g.querySelectorAll('[role="row"]')]; if (!r.length && g.tagName === 'TABLE') r = [...g.querySelectorAll('tr')]; return r; }
   function rowCells(row) { let c = [...row.querySelectorAll('[role="gridcell"],[role="cell"],[role="columnheader"]')]; if (!c.length) c = [...row.querySelectorAll('td,th')]; return c.map((x) => x.textContent.trim()); }
@@ -202,7 +211,7 @@
       const symbol = t.col.symbol != null ? cells[t.col.symbol] : '';
       if (!symbol || /^(total|—|-)?$/i.test(symbol)) continue;
       const qty = t.col.qty != null ? num(cells[t.col.qty]) : null;
-      out.push({ symbol, side: normSide(t.col.side != null ? cells[t.col.side] : '', qty), qty, avg: t.col.avg != null ? num(cells[t.col.avg]) : null, pnl: t.col.pnl != null ? num(cells[t.col.pnl]) : null });
+      out.push({ symbol, side: normSide(t.col.side != null ? cells[t.col.side] : '', qty), qty, avg: t.col.avg != null ? num(cells[t.col.avg]) : null, last: t.col.last != null ? num(cells[t.col.last]) : null, pnl: t.col.pnl != null ? num(cells[t.col.pnl]) : null });
     }
     return out;
   }
@@ -212,17 +221,39 @@
     if (event === 'entry' || event === 'add') return long ? 'buy' : 'sell';
     return long ? 'sell' : 'buy'; // exit / reduce
   }
+  // Realized gain/loss for a close. Prefer the broker's Profit cell (handles
+  // fees / option multipliers); otherwise derive it from (exit − entry) × qty.
+  function computePnl(side, avg, last, qty, tablePnl) {
+    if (tablePnl != null) return tablePnl;
+    if (avg == null || last == null || !qty) return null;
+    const dir = side === 'short' ? -1 : 1;
+    return Math.round((last - avg) * Math.abs(qty) * dir * 100) / 100;
+  }
   function tradeTick() {
     const found = scanPositions();
     if (found == null) return;
     const prev = new Map(myPositions.map((p) => [`${p.symbol}|${p.side}`, p]));
     const next = new Map(found.map((p) => [`${p.symbol}|${p.side}`, p]));
-    for (const [k, p] of next) { if (!prev.has(k)) emitTrade('entry', p); else if (prev.get(k).qty !== p.qty) emitTrade(p.qty > prev.get(k).qty ? 'add' : 'reduce', p); }
-    for (const [k, p] of prev) if (!next.has(k)) emitTrade('exit', p);
+    for (const [k, p] of next) {
+      const pv = prev.get(k);
+      if (!pv) emitTrade('entry', p);
+      else if (pv.qty !== p.qty) {
+        if (p.qty > pv.qty) emitTrade('add', p);
+        else emitTrade('reduce', p, computePnl(p.side, p.avg, p.last, Math.abs(pv.qty) - Math.abs(p.qty), p.pnl));
+      }
+    }
+    for (const [k, p] of prev) if (!next.has(k)) emitTrade('exit', p, computePnl(p.side, p.avg, p.last, p.qty, p.pnl));
     myPositions = found; sendPresence(); renderRoster();
   }
-  function emitTrade(event, p) {
-    const payload = { event, symbol: p.symbol, side: p.side, qty: p.qty, avg: p.avg, pnl: p.pnl };
+  function emitTrade(event, p, pnl) {
+    // Entry opens at the avg fill price. add/reduce/exit transact at ~the current
+    // market price — the position's `avg` is the *entry* price, not the price you
+    // just bought/sold at, so use the live `last` column when we have it.
+    const price = event === 'entry' ? p.avg : (p.last != null ? p.last : p.avg);
+    const realized = pnl !== undefined ? pnl : null;
+    const pct = event === 'entry' ? null : computePct(p.side, p.avg, p.last); // % return on this trade
+    if (event === 'exit' || event === 'reduce') { if (realized != null) sessionPnl += realized; if (pct != null) sessionPct += pct; }
+    const payload = { event, symbol: p.symbol, side: p.side, qty: p.qty, avg: price, pnl: realized != null ? realized : p.pnl, pct };
     bg({ type: 'ws', payload: Object.assign({ type: 'trade' }, payload) });
     pushFeed(Object.assign({ type: 'trade', who: 'You', action: tradeAction(event, p.side) }, payload));
   }
@@ -251,11 +282,16 @@
 
   // ---- server messages ------------------------------------------------------
   function handleServer(msg) {
-    if (msg.type === 'joined') { for (const p of msg.peers) makePeer(p.id, p.name, p.symbol, false, p.positions, p.media); }
+    if (msg.type === 'joined') { sessionPnl = 0; sessionPct = 0; for (const p of msg.peers) makePeer(p.id, p.name, p.symbol, false, p.positions, p.media); }
     else if (msg.type === 'peer-joined') { const p = msg.peer; if (!peers.has(p.id)) { makePeer(p.id, p.name, p.symbol, true, p.positions, p.media); pushFeed({ type: 'sys', text: `${p.name} joined` }); } }
     else if (msg.type === 'peer-left') { const pe = peers.get(msg.id); if (pe) pushFeed({ type: 'sys', text: `${pe.name} left` }); closePeer(msg.id); }
     else if (msg.type === 'presence') { const peer = peers.get(msg.id); if (peer) { peer.symbol = msg.symbol; peer.positions = msg.positions || []; peer.media = msg.media || {}; renderRoster(); renderMedia(); } }
-    else if (msg.type === 'trade') { const peer = peers.get(msg.id); pushFeed({ type: 'trade', who: peer ? peer.name : 'Someone', action: tradeAction(msg.event, msg.side), event: msg.event, symbol: msg.symbol, side: msg.side, avg: msg.avg, pnl: msg.pnl }); }
+    else if (msg.type === 'trade') {
+      const peer = peers.get(msg.id);
+      if (peer && (msg.event === 'exit' || msg.event === 'reduce')) { if (msg.pnl != null) peer.sessionPnl += msg.pnl; if (msg.pct != null) peer.sessionPct += msg.pct; }
+      pushFeed({ type: 'trade', who: peer ? peer.name : 'Someone', action: tradeAction(msg.event, msg.side), event: msg.event, symbol: msg.symbol, side: msg.side, avg: msg.avg, pnl: msg.pnl, pct: msg.pct });
+      renderRoster();
+    }
     else if (msg.type === 'callout') { const peer = peers.get(msg.id); pushFeed(Object.assign({ who: peer ? peer.name : 'Someone' }, msg)); }
     else if (msg.type === 'signal') { onSignal(msg.from, msg.data); }
   }
@@ -409,21 +445,29 @@
     .chk input { accent-color: #2563eb; }
 
     .rhd { font-size: 10px; color: #7a818c; text-transform: uppercase; letter-spacing: .6px; font-weight: 700; margin: 0 2px 8px; }
-    ul.roster { list-style: none; margin: 0; padding: 0; max-height: 30vh; overflow-y: auto; }
-    ul.roster li { display: flex; align-items: center; gap: 10px; padding: 7px 2px; }
-    .ava { width: 30px; height: 30px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex: 0 0 auto; position: relative; }
+    ul.roster { list-style: none; margin: 0 -4px; padding: 0 4px; max-height: 30vh; overflow-y: auto; }
+    ul.roster li { display: flex; align-items: center; gap: 11px; padding: 8px 2px; }
+    .ava { width: 38px; height: 38px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex: 0 0 auto; position: relative; }
     .ava.spk { box-shadow: 0 0 0 2px #16181d, 0 0 0 4px #22c55e; }
-    .ava .md { position: absolute; right: -2px; bottom: -2px; width: 13px; height: 13px; border-radius: 50%; background: #16181d; display: flex; align-items: center; justify-content: center; }
-    .ava .md svg { width: 9px; height: 9px; }
-    .who { flex: 1; min-width: 0; } .who .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .who .you { color: #6f7682; font-weight: 400; font-size: 11px; }
-    .who .sub { display: flex; align-items: center; gap: 5px; margin-top: 3px; }
-    .symtxt { display: inline-flex; align-items: center; gap: 4px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #cbd2da; background: #18222f; border: 1px solid #2b3a4d; border-radius: 6px; padding: 2px 7px; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ava .md { position: absolute; right: -2px; bottom: -2px; width: 16px; height: 16px; border-radius: 50%; background: #16181d; display: flex; align-items: center; justify-content: center; }
+    .ava .md svg { width: 11px; height: 11px; }
+    .who { flex: 1; min-width: 0; } .who .nm { font-weight: 650; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .who .you { color: #6f7682; font-weight: 400; font-size: 12px; }
+    .who .sub { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+    .symtxt { display: inline-flex; align-items: center; gap: 4px; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: #cbd2da; background: #18222f; border: 1px solid #2b3a4d; border-radius: 7px; padding: 3px 8px; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .symtxt svg { color: #5aa7ff; flex: 0 0 auto; }
     .symtxt.off { color: #5b626d; background: #0f1115; border-color: #262a32; font-style: italic; }
-    .who .poswrap { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-    .pos { font-family: ui-monospace, Menlo, monospace; font-size: 10px; padding: 1px 5px; border-radius: 5px; white-space: nowrap; }
-    .pos.long { background: #0f2a1b; color: #4ade80; } .pos.short { background: #2c1417; color: #f87171; }
+    .posrail { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; max-width: 50%; overflow-x: auto; align-self: center; scrollbar-width: none; overscroll-behavior-x: contain; }
+    .posrail::-webkit-scrollbar { display: none; }
+    .pcard { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; padding: 7px 10px; border-radius: 10px; background: #11161d; border: 1px solid #242a33; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); flex: 0 0 auto; min-width: 58px; }
+    .pcard .ptk { color: #e8eaed; font-weight: 700; letter-spacing: .3px; }
+    .pcard .pbot { display: flex; align-items: center; gap: 4px; }
+    .pcard .pdir { display: flex; align-items: center; }
+    .pcard .pval { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .pcard.up { background: rgba(34,197,94,.09); border-color: rgba(34,197,94,.32); }
+    .pcard.up .pval, .pcard.up .pdir { color: #4ade80; }
+    .pcard.down { background: rgba(248,113,113,.09); border-color: rgba(248,113,113,.32); }
+    .pcard.down .pval, .pcard.down .pdir { color: #f87171; }
     .rpin { background: none; border: none; color: #4a5160; cursor: pointer; padding: 2px; border-radius: 6px; display: flex; flex: 0 0 auto; }
     .rpin:hover { color: #cbd2da; } .rpin.on { color: #fbbf24; }
 
@@ -431,13 +475,17 @@
     .tiles:empty { display: none; }
     .tile { position: relative; border-radius: 9px; overflow: hidden; background: #000; border: 1px solid #262a32; }
     .tile.pinned { grid-column: 1 / -1; border-color: #fbbf24; }
+    .tile.spk { border-color: #22c55e; box-shadow: 0 0 0 1px #22c55e; }
+    .tile.avatile { aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; background: #0f1115; }
+    .tile.avatile .tava { width: 46px; height: 46px; font-size: 16px; }
+    .panel.size-large .tile.avatile .tava { width: 64px; height: 64px; font-size: 22px; }
     .tile video { width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover; cursor: pointer; }
     .tile .tlabel { position: absolute; left: 5px; bottom: 5px; font-size: 10px; background: rgba(0,0,0,.6); padding: 1px 6px; border-radius: 5px; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tile .pinbtn { position: absolute; right: 5px; top: 5px; background: rgba(0,0,0,.55); color: #fff; border: none; border-radius: 6px; padding: 3px; cursor: pointer; display: flex; opacity: .85; }
     .tile .pinbtn.on { background: #fbbf24; color: #1a1a1a; }
     .panel.size-large .tiles { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); margin-top: 0; }
 
-    .bar { display: flex; gap: 10px; justify-content: center; margin-top: 14px; padding-top: 14px; border-top: 1px solid #20242b; flex: 0 0 auto; }
+    .bar { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 14px; padding-top: 14px; border-top: 1px solid #20242b; flex: 0 0 auto; }
     .ic { width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer; background: #21262e; color: #e8eaed; display: flex; align-items: center; justify-content: center; }
     .ic:hover { background: #2a313b; } .ic.on { background: #2563eb; color: #fff; } .ic.muted { background: #3a2024; color: #f87171; }
     .ic.danger { background: #3a2024; color: #f87171; } .ic.danger:hover { background: #4a262b; }
@@ -480,6 +528,9 @@
     .act.buy { background: #0f2a1b; color: #4ade80; } .act.sell { background: #2c1417; color: #f87171; }
     .ftext { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ftext b { color: #e8eaed; }
     .pnl.up { color: #4ade80; } .pnl.down { color: #f87171; }
+    .tpnl { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; font-weight: 700; line-height: 1.25; }
+    .tpnl.up { color: #4ade80; } .tpnl.down { color: #f87171; }
+    .tsub2.muted { color: #6f7682; }
     .ftime { color: #5b626d; font-size: 10px; }
     .fsys { font-size: 10.5px; color: #6f7682; text-align: center; padding: 2px; }
     .callout { border-radius: 8px; padding: 6px 9px; border-left: 3px solid #2563eb; background: #11161f; }
@@ -493,7 +544,7 @@
 
     .lwrap { flex: 1; display: flex; gap: 12px; min-height: 0; padding-top: 4px; }
     .lmain { flex: 1; min-width: 0; overflow-y: auto; }
-    .lside { width: 272px; flex: 0 0 auto; overflow-y: auto; border-left: 1px solid #20242b; padding-left: 12px; }
+    .lside { width: 304px; flex: 0 0 auto; overflow-y: auto; border-left: 1px solid #20242b; padding-left: 12px; }
 
     .minwrap.minavs { display: flex; align-items: center; padding: 7px 11px; }
     .minwrap.minsolo { display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 14px 18px; }
@@ -501,6 +552,11 @@
     .mname { font-size: 12px; font-weight: 600; color: #e8eaed; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .minwrap.minvid { position: relative; width: 188px; height: 106px; }
     .minwrap.minvid video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .minwrap.minvid.spk::after { content: ''; position: absolute; inset: 0; border: 2.5px solid #22c55e; pointer-events: none; }
+    .minwrap.mtiles { display: flex; flex-wrap: wrap; gap: 5px; padding: 7px; max-width: 192px; }
+    .mtile { position: relative; width: 56px; height: 42px; border-radius: 8px; overflow: hidden; background: #0f1115; border: 2px solid #2a2f38; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 13px; }
+    .mtile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .mtile.spk { border-color: #22c55e; }
     .minwrap.minvid .mvlabel { position: absolute; left: 6px; bottom: 6px; font-size: 10px; background: rgba(0,0,0,.62); color: #fff; padding: 1px 6px; border-radius: 5px; max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .minctl { position: absolute; top: 6px; right: 6px; display: flex; gap: 6px; opacity: 0; transition: opacity .12s; }
     .minwrap.minvid:hover .minctl { opacity: 1; }
@@ -533,7 +589,7 @@
     <div class="panel size-panel" id="panel">
       <div class="rgrip" id="rgrip" title="Drag to resize"></div>
       <div class="hdr" id="hdr">
-        <span class="title">TradingView Squad</span>
+        <span class="title">TradingTalk</span>
         <span class="code hidden" id="hdrCode"></span>
         <button class="ix" id="gearBtn" title="Settings">${ICONS.gear}</button>
         <button class="ix hidden" id="expandBtn" title="Expand"></button>
@@ -544,6 +600,12 @@
           <div class="segmm">
             <button data-mm="speaker">Speaker</button>
             <button data-mm="multi">Everyone</button>
+          </div>
+        </div>
+        <div class="srow"><span class="slbl">Gain / loss</span>
+          <div class="segmm">
+            <button data-pu="usd">$</button>
+            <button data-pu="pct">%</button>
           </div>
         </div>
         <div class="srow col"><span class="slbl">Server URL</span>
@@ -615,19 +677,22 @@
   $('minBtn').addEventListener('click', (e) => { e.stopPropagation(); setView('min'); });
   function syncSettings() {
     shadow.querySelectorAll('[data-mm]').forEach((x) => x.classList.toggle('sel', x.dataset.mm === minMode));
+    shadow.querySelectorAll('[data-pu]').forEach((x) => x.classList.toggle('sel', x.dataset.pu === pnlUnit));
     const si = $('serverInput'); if (si) si.value = (serverUrl && serverUrl !== DEFAULT_SERVER) ? serverUrl : '';
   }
   $('gearBtn').addEventListener('click', (e) => { e.stopPropagation(); $('settings').classList.toggle('hidden'); syncSettings(); });
   shadow.querySelectorAll('[data-mm]').forEach((b) => b.addEventListener('click', () => { minMode = b.dataset.mm; storageSet({ tvSquadMinMode: minMode }); syncSettings(); if (view === 'min') renderMin(); }));
+  shadow.querySelectorAll('[data-pu]').forEach((b) => b.addEventListener('click', () => { pnlUnit = b.dataset.pu; storageSet({ tvSquadPnlUnit: pnlUnit }); syncSettings(); renderRoster(); renderFeed(); }));
   $('serverInput').addEventListener('change', () => { serverUrl = $('serverInput').value.trim() || DEFAULT_SERVER; storageSet({ tvSquadServer: serverUrl }); });
 
   function setView(v) { if (v === 'panel' || v === 'large') lastSize = v; view = v; applyView(); }
   function applyView() {
     if (!connected && view === 'large') view = 'panel';
     panel.className = 'panel size-' + view;
-    if (view !== 'min' && manualSize[view]) { panel.style.width = manualSize[view].w + 'px'; panel.style.height = manualSize[view].h + 'px'; }
+    // Join screen auto-sizes; saved manual size only applies once in a room.
+    if (view !== 'min' && connected && manualSize[view]) { panel.style.width = manualSize[view].w + 'px'; panel.style.height = manualSize[view].h + 'px'; }
     else { panel.style.width = ''; panel.style.height = ''; }
-    const b = $('body'); if (b) { b._minVid = null; }
+    const b = $('body'); if (b) { b._min = null; b._sig = null; b._wrap = null; b._tiles = null; }
     if (view === 'min') renderMin(); else renderBody();
     // Min always respawns bottom-right (CSS); panel/large restore the saved position.
     if (view !== 'min' && pos) applyPos();
@@ -667,45 +732,97 @@
     if (screenStream && screenStream.id === pinnedStreamId) return myName + ' · screen';
     return '';
   }
+  // Is the owner of the pinned stream currently speaking?
+  function pinSpeaking() {
+    if ((camStream && camStream.id === pinnedStreamId) || (screenStream && screenStream.id === pinnedStreamId)) return selfSpeaking;
+    for (const peer of peers.values()) if (peer.videoStreams.has(pinnedStreamId)) return !!peer.speaking;
+    return false;
+  }
+  // Participants for the minimized "Everyone" view: self first, then peers.
+  // stream = their live camera if it's on, else null (we show an avatar instead).
+  function minParticipants() {
+    const list = [{ key: 'self', name: myName || 'You', stream: camStream || null, speaking: selfSpeaking }];
+    for (const peer of peers.values()) {
+      const m = peer.media || {};
+      const cam = (m.cam && peer.videoStreams.get(m.cam)) || null;
+      list.push({ key: peer.id, name: peer.name, stream: cam, speaking: !!peer.speaking });
+    }
+    return list;
+  }
   // What the minimized "speaker" view shows: pinned > active speaker's video >
-  // active speaker's avatar > yourself.
+  // active speaker's avatar > yourself. `speaking` drives the talking outline.
   function minFocus() {
-    const pin = pinnedStream(); if (pin) return { video: pin, name: pinName() };
+    const pin = pinnedStream(); if (pin) return { video: pin, name: pinName(), speaking: pinSpeaking() };
     const id = activeSpeaker;
     if (id === 'self') {
-      if (camStream) return { video: camStream, name: myName };
-      if (screenStream) return { video: screenStream, name: myName + ' · screen' };
+      if (camStream) return { video: camStream, name: myName, speaking: selfSpeaking };
+      if (screenStream) return { video: screenStream, name: myName + ' · screen', speaking: selfSpeaking };
       return { name: myName, spk: selfSpeaking };
     }
     const peer = id && peers.get(id);
     if (peer) {
       const m = peer.media || {};
       const vs = (m.cam && peer.videoStreams.get(m.cam)) || (m.screen && peer.videoStreams.get(m.screen)) || peer.videoStreams.values().next().value || null;
-      if (vs) return { video: vs, name: peer.name };
+      if (vs) return { video: vs, name: peer.name, speaking: !!peer.speaking };
       return { name: peer.name, spk: peer.speaking };
     }
-    if (camStream) return { video: camStream, name: myName };
-    if (screenStream) return { video: screenStream, name: myName + ' · screen' };
+    if (camStream) return { video: camStream, name: myName, speaking: selfSpeaking };
+    if (screenStream) return { video: screenStream, name: myName + ' · screen', speaking: selfSpeaking };
     return { name: myName, spk: selfSpeaking };
   }
   function renderMin() {
     const body = $('body'); if (!body) return;
-    if (!connected) { body._minVid = null; body.innerHTML = `<div class="minwrap minavs"><span class="pava" style="background:#2563eb">📈</span></div>`; return; }
-    if (minMode === 'multi') { body._minVid = null; body.innerHTML = `<div class="minwrap minavs">${avatarsHtml()}</div>`; return; }
+    if (!connected) { body._min = null; body._sig = null; body.innerHTML = `<div class="minwrap minavs"><span class="pava" style="background:#2563eb">📈</span></div>`; return; }
+    if (minMode === 'multi') renderMinEveryone(body); else renderMinSpeaker(body);
+  }
+  // "Everyone": stacked tiles — camera where it's on, avatar otherwise. The
+  // talking person's tile gets the green speaking outline. Tiles are only
+  // rebuilt when the participant/stream set changes, so video never flickers.
+  function renderMinEveryone(body) {
+    const parts = minParticipants();
+    if (!parts.some((p) => p.stream)) {
+      // nobody on camera — compact stack of avatars (speaking ring via .pava.spk)
+      body._min = null; body._sig = null; body._tiles = null;
+      body.innerHTML = `<div class="minwrap minavs">${avatarsHtml()}</div>`;
+      return;
+    }
+    const sig = 'm|' + parts.map((p) => p.key + ':' + (p.stream ? p.stream.id : 'a')).join(',');
+    if (body._sig !== sig) {
+      body._sig = sig; body._min = null; body.innerHTML = '';
+      const wrap = document.createElement('div'); wrap.className = 'minwrap mtiles';
+      body._tiles = new Map();
+      for (const p of parts) {
+        const tile = document.createElement('div'); tile.className = 'mtile'; tile.title = p.name;
+        if (p.stream) {
+          const v = document.createElement('video'); v.autoplay = true; v.playsInline = true; v.muted = true; v.srcObject = p.stream;
+          tile.appendChild(v);
+        } else {
+          tile.classList.add('av'); tile.style.background = colorFor(p.name); tile.textContent = initials(p.name);
+        }
+        wrap.appendChild(tile); body._tiles.set(p.key, tile);
+      }
+      body.appendChild(wrap);
+    }
+    for (const p of parts) { const el = body._tiles && body._tiles.get(p.key); if (el) el.classList.toggle('spk', !!p.speaking); }
+  }
+  // "Speaker": the single focused video (or avatar). The video gets the same
+  // green outline as the avatar when that person is talking.
+  function renderMinSpeaker(body) {
     const f = minFocus();
     if (f.video) {
-      if (body._minVid !== f.video) {
-        body._minVid = f.video; body.innerHTML = '';
+      if (body._min !== f.video) {
+        body._min = f.video; body._sig = null; body.innerHTML = '';
         const wrap = document.createElement('div'); wrap.className = 'minwrap minvid';
         const v = document.createElement('video'); v.autoplay = true; v.playsInline = true; v.muted = true; v.srcObject = f.video;
         const lbl = document.createElement('div'); lbl.className = 'mvlabel';
         const ctl = document.createElement('div'); ctl.className = 'minctl';
-        wrap.appendChild(v); wrap.appendChild(lbl); wrap.appendChild(ctl); body.appendChild(wrap); body._lbl = lbl; body._ctl = ctl;
+        wrap.appendChild(v); wrap.appendChild(lbl); wrap.appendChild(ctl); body.appendChild(wrap); body._wrap = wrap; body._lbl = lbl; body._ctl = ctl;
       }
       if (body._lbl) body._lbl.textContent = f.name || '';
       if (body._ctl) fillMinControls(body._ctl);
+      if (body._wrap) body._wrap.classList.toggle('spk', !!f.speaking);
     } else {
-      body._minVid = null;
+      body._min = null; body._sig = null; body._wrap = null;
       body.innerHTML = `<div class="minwrap minsolo"><div class="ava big ${f.spk ? 'spk' : ''}" style="background:${colorFor(f.name)}">${escapeHtml(initials(f.name))}</div><div class="mname">${escapeHtml(f.name || 'Anon')}</div></div>`;
     }
   }
@@ -827,32 +944,70 @@
 
   function copyInvite() {
     const text = isPublic
-      ? `Join the ${tickerOf(currentSymbol)} live room on TradingView Squad — open ${currentSymbol} on TradingView and pick the Public tab.`
-      : `Join my TradingView Squad — room code: ${room}`;
+      ? `Join the ${tickerOf(currentSymbol)} live room on TradingTalk — open ${currentSymbol} on TradingView and pick the Public tab.`
+      : `Join my TradingTalk — room code: ${room}`;
     navigator.clipboard.writeText(text).then(() => setStatus('Invite copied to clipboard')).catch(() => {});
   }
 
   function avaHtml(name, spk, hasMic) { const md = hasMic ? '' : `<span class="md">${ICONS.micOff}</span>`; return `<div class="ava ${spk ? 'spk' : ''}" style="background:${colorFor(name)}">${escapeHtml(initials(name))}${md}</div>`; }
 
+  // Toggle the speaking ring in place (roster avatars + stage tiles) so voice
+  // activity never rebuilds the DOM — rebuilding resets the cards' scroll.
+  function applySpeaking() {
+    const ul = $('roster');
+    if (ul) {
+      const flags = [selfSpeaking]; for (const peer of peers.values()) flags.push(!!peer.speaking);
+      ul.querySelectorAll('li > .ava').forEach((a, i) => a.classList.toggle('spk', !!flags[i]));
+    }
+    const wrap = $('tiles');
+    if (wrap) wrap.querySelectorAll('[data-aid]').forEach((tile) => {
+      const aid = tile.dataset.aid; const peer = peers.get(aid);
+      tile.classList.toggle('spk', aid === 'self' ? selfSpeaking : !!(peer && peer.speaking));
+    });
+  }
   function renderRoster() {
     const rhd = $('rhd'); if (rhd) rhd.textContent = `In room · ${peers.size + 1}`;
     const ul = $('roster');
     if (ul) {
-      const rows = [rosterRow(myName, currentSymbol, selfSpeaking, true, !muted && !!localStream, shareTrades ? myPositions : [], selfPinId())];
-      for (const peer of peers.values()) rows.push(rosterRow(peer.name, peer.symbol, peer.speaking, false, true, peer.positions || [], peerPinId(peer)));
-      ul.innerHTML = rows.join('');
+      const rows = [rosterRow(myName, currentSymbol, false, true, !muted && !!localStream, shareTrades ? myPositions : [], selfPinId())];
+      for (const peer of peers.values()) rows.push(rosterRow(peer.name, peer.symbol, false, false, true, peer.positions || [], peerPinId(peer)));
+      const html = rows.join('');
+      if (html !== ul._html) {
+        const sl = [...ul.querySelectorAll('.posrail')].map((r) => r.scrollLeft);
+        ul.innerHTML = html; ul._html = html;
+        ul.querySelectorAll('.posrail').forEach((r, i) => { if (sl[i]) r.scrollLeft = sl[i]; });
+      }
+      applySpeaking();
     }
     if (view === 'min') renderMin();
   }
   function selfPinId() { return (screenStream && screenStream.id) || (camStream && camStream.id) || null; }
   function peerPinId(peer) { const m = peer.media || {}; if (m.screen && peer.videoStreams.get(m.screen)) return m.screen; if (m.cam && peer.videoStreams.get(m.cam)) return m.cam; const f = peer.videoStreams.keys().next(); return f.done ? null : f.value; }
+  function fmtUsd(v) { const a = Math.abs(v); return (v >= 0 ? '+' : '−') + '$' + (a >= 100 ? Math.round(a).toLocaleString() : a.toFixed(2)); }
+  function computePct(side, avg, last) { if (avg == null || last == null || !avg) return null; return (last / avg - 1) * 100 * (side === 'short' ? -1 : 1); }
+  // Unit-aware gain/loss → { val, up } or null, honoring the $/% setting.
+  function pnlText(side, avg, last, qty, tablePnl) {
+    if (pnlUnit === 'pct') { const p = computePct(side, avg, last); return p == null ? null : { val: (p >= 0 ? '+' : '−') + Math.abs(p).toFixed(2) + '%', up: p >= 0 }; }
+    const v = computePnl(side, avg, last, qty, tablePnl); return v == null ? null : { val: fmtUsd(v), up: v >= 0 };
+  }
+  // Live position card: ticker + trend arrow + unrealized gain/loss (green/red).
+  const TREND_UP = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>';
+  const TREND_DOWN = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>';
+  function posCard(p) {
+    const tk = escapeHtml(String(p.symbol || '').split(':').pop());
+    const t = pnlText(p.side, p.avg, p.last, p.qty, p.pnl);
+    if (!t) return `<span class="pcard"><span class="ptk">${tk}</span></span>`;
+    const val = t.val.replace(/^\+/, '');
+    return `<span class="pcard ${t.up ? 'up' : 'down'}" title="${tk} unrealized P&amp;L"><span class="ptk">${tk}</span><span class="pbot"><span class="pdir">${t.up ? TREND_UP : TREND_DOWN}</span><span class="pval">${val}</span></span></span>`;
+  }
   function rosterRow(name, symbol, spk, isSelf, hasMic, positions, pinId) {
     const pin = pinId ? `<button class="rpin ${pinnedStreamId === pinId ? 'on' : ''}" data-pin="${pinId}" title="Pin to stage">${ICONS.pin}</button>` : '';
     const eye = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
     const sym = symbol ? `<span class="symtxt" title="Viewing ${escapeHtml(symbol)}">${eye}${escapeHtml(symbol)}</span>` : `<span class="symtxt off">No chart open</span>`;
-    return `<li>${avaHtml(name, spk, hasMic)}<div class="who"><div class="nm">${escapeHtml(name || 'Anon')}${isSelf ? ' <span class="you">(you)</span>' : ''}</div><div class="sub">${sym}</div></div>${pin}</li>`;
+    const cards = (positions && positions.length) ? `<div class="posrail">${positions.map(posCard).join('')}</div>` : '';
+    return `<li>${avaHtml(name, spk, hasMic)}<div class="who"><div class="nm">${escapeHtml(name || 'Anon')}${isSelf ? ' <span class="you">(you)</span>' : ''}</div><div class="sub">${sym}</div></div>${cards}${pin}</li>`;
   }
-  function updateSpeaking() { if (view === 'min') renderMin(); else renderRoster(); }
+  function updateSpeaking() { if (view === 'min') renderMin(); else applySpeaking(); }
 
   function renderControls() {
     const mic = $('micBtn'); if (mic) { mic.innerHTML = muted ? ICONS.micOff : ICONS.mic; mic.className = 'ic' + (muted ? ' muted' : ' on'); }
@@ -864,14 +1019,17 @@
 
   function desiredTiles() {
     const list = [];
-    if (camStream) list.push({ id: camStream.id, stream: camStream, label: (myName || 'You') });
-    if (screenStream) list.push({ id: screenStream.id, stream: screenStream, label: (myName || 'You') + ' · screen' });
+    if (camStream) list.push({ id: camStream.id, stream: camStream, label: (myName || 'You'), who: 'self' });
+    if (screenStream) list.push({ id: screenStream.id, stream: screenStream, label: (myName || 'You') + ' · screen', who: 'self' });
     for (const peer of peers.values()) {
       const m = peer.media || {}; const shown = new Set();
-      if (m.cam && peer.videoStreams.get(m.cam)) { list.push({ id: m.cam, stream: peer.videoStreams.get(m.cam), label: peer.name }); shown.add(m.cam); }
-      if (m.screen && peer.videoStreams.get(m.screen)) { list.push({ id: m.screen, stream: peer.videoStreams.get(m.screen), label: peer.name + ' · screen' }); shown.add(m.screen); }
-      for (const [id, st] of peer.videoStreams) if (!shown.has(id)) list.push({ id, stream: st, label: peer.name });
+      if (m.cam && peer.videoStreams.get(m.cam)) { list.push({ id: m.cam, stream: peer.videoStreams.get(m.cam), label: peer.name, who: peer.id }); shown.add(m.cam); }
+      if (m.screen && peer.videoStreams.get(m.screen)) { list.push({ id: m.screen, stream: peer.videoStreams.get(m.screen), label: peer.name + ' · screen', who: peer.id }); shown.add(m.screen); }
+      for (const [id, st] of peer.videoStreams) if (!shown.has(id)) list.push({ id, stream: st, label: peer.name, who: peer.id });
     }
+    // Camera-off participants still get a stage tile with their avatar (Discord-style).
+    if (!camStream && !screenStream) list.push({ id: 'ava:self', ava: myName || 'You', label: (myName || 'You') + ' (you)', who: 'self' });
+    for (const peer of peers.values()) if (!peer.videoStreams.size) list.push({ id: 'ava:' + peer.id, ava: peer.name, label: peer.name, who: peer.id });
     if (pinnedStreamId && !list.some((t) => t.id === pinnedStreamId)) pinnedStreamId = null;
     list.sort((a, b) => (b.id === pinnedStreamId ? 1 : 0) - (a.id === pinnedStreamId ? 1 : 0));
     return list;
@@ -883,7 +1041,13 @@
     if (sig === wrap._sig) return; wrap._sig = sig;
     wrap.innerHTML = '';
     for (const t of list) {
-      const tile = document.createElement('div'); tile.className = 'tile' + (t.id === pinnedStreamId ? ' pinned' : '');
+      const tile = document.createElement('div'); tile.dataset.aid = t.who;
+      if (t.ava != null) {
+        tile.className = 'tile avatile';
+        tile.innerHTML = `<div class="ava tava" style="background:${colorFor(t.ava)}">${escapeHtml(initials(t.ava))}</div><span class="tlabel">${escapeHtml(t.label)}</span>`;
+        wrap.appendChild(tile); continue;
+      }
+      tile.className = 'tile' + (t.id === pinnedStreamId ? ' pinned' : '');
       const v = document.createElement('video'); v.autoplay = true; v.playsInline = true; v.muted = true; v.srcObject = t.stream;
       v.addEventListener('click', () => openModal(t.stream));
       const l = document.createElement('span'); l.className = 'tlabel'; l.textContent = t.label;
@@ -891,6 +1055,7 @@
       pb.addEventListener('click', (e) => { e.stopPropagation(); pinnedStreamId = pinnedStreamId === t.id ? null : t.id; renderMedia(); renderRoster(); });
       tile.appendChild(v); tile.appendChild(l); tile.appendChild(pb); wrap.appendChild(tile);
     }
+    applySpeaking();
   }
 
   function feedMatches(f) {
@@ -912,15 +1077,24 @@
       ? items.map((f) => f.type === 'callout' ? calloutRow(f) : f.type === 'sys' ? `<div class="fsys">${escapeHtml(f.text)}</div>` : tradeRow(f)).join('')
       : `<div class="fempty">No ${tradeFilter === 'all' ? 'activity yet' : tradeFilter + ' trades yet'}</div>`;
   }
+  function feedPnl(f) {
+    if (pnlUnit === 'pct' && f.pct != null) return { val: (f.pct >= 0 ? '+' : '−') + Math.abs(f.pct).toFixed(2) + '%', up: f.pct >= 0 };
+    if (f.pnl != null) return { val: fmtUsd(f.pnl), up: f.pnl >= 0 };
+    return null;
+  }
   function tradeRow(f) {
     const buy = f.action === 'buy';
     const evlab = { entry: 'opened', exit: 'closed', add: 'added', reduce: 'trimmed' }[f.event] || f.event;
-    const price = (f.avg != null) ? `@ ${escapeHtml(String(f.avg))}` : '';
-    const pnl = (f.event === 'exit' || f.event === 'reduce') && f.pnl != null ? `<span class="pnl ${f.pnl >= 0 ? 'up' : 'down'}">${f.pnl >= 0 ? '+' : ''}${escapeHtml(String(f.pnl))}</span>` : '';
+    const priceTxt = (f.avg != null) ? `@${escapeHtml(String(f.avg))}` : '';
+    // Closing trades lead with gain/loss in green/red ($ or %); opens show price.
+    const t = (f.event === 'exit' || f.event === 'reduce') ? feedPnl(f) : null;
+    const right = t
+      ? `<div class="tpnl ${t.up ? 'up' : 'down'}">${t.val}</div>${priceTxt ? `<div class="tsub2 muted">${priceTxt}</div>` : ''}`
+      : `<div class="tval">${priceTxt}</div>`;
     return `<div class="trow">
       <span class="ttag ${buy ? 'buy' : 'sell'}">${buy ? 'BUY' : 'SELL'}</span>
       <div class="tleft"><div class="tsym">${escapeHtml(f.symbol)}</div><div class="tsub">${escapeHtml(f.who)} · ${evlab} · ${fmtTime(f.ts)}</div></div>
-      <div class="tright"><div class="tval">${price}</div><div class="tsub2">${pnl}</div></div>
+      <div class="tright">${right}</div>
     </div>`;
   }
   function calloutRow(f) {
@@ -939,9 +1113,10 @@
   function openModal(stream) { const modal = $('modal'); modal.innerHTML = ''; const v = document.createElement('video'); v.autoplay = true; v.playsInline = true; v.srcObject = stream; modal.appendChild(v); modal.classList.remove('hidden'); modal.addEventListener('click', () => modal.classList.add('hidden'), { once: true }); }
   function randomCode() { const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 6; i++) s += a[Math.floor(Math.random() * a.length)]; return s; }
 
-  storageGet(['tvSquadShareTrades', 'tvSquadMinMode', 'tvSquadServer', 'tvSquadSizes', 'tvSquadPos'], (r) => {
+  storageGet(['tvSquadShareTrades', 'tvSquadMinMode', 'tvSquadServer', 'tvSquadSizes', 'tvSquadPos', 'tvSquadPnlUnit'], (r) => {
     shareTrades = !!(r && r.tvSquadShareTrades);
     if (r && r.tvSquadMinMode) minMode = r.tvSquadMinMode;
+    if (r && r.tvSquadPnlUnit) pnlUnit = r.tvSquadPnlUnit;
     if (r && r.tvSquadServer) serverUrl = r.tvSquadServer;
     if (r && r.tvSquadSizes) manualSize = r.tvSquadSizes;
     if (r && r.tvSquadPos) pos = r.tvSquadPos;
