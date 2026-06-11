@@ -364,7 +364,7 @@
   // ---- media toggles --------------------------------------------------------
   function addLocalVideo(stream) { const vt = stream.getVideoTracks()[0]; for (const peer of peers.values()) peer.pc.addTrack(vt, stream); sendPresence(); renderControls(); renderMedia(); }
   function removeLocalVideo(stream) { const vt = stream.getVideoTracks()[0]; for (const peer of peers.values()) { const s = peer.pc.getSenders().find((x) => x.track === vt); if (s) peer.pc.removeTrack(s); } stream.getTracks().forEach((t) => t.stop()); }
-  function toggleMute() { muted = !muted; if (localStream) { const t = localStream.getAudioTracks()[0]; if (t) t.enabled = !muted; } renderControls(); renderRoster(); }
+  function toggleMute() { muted = !muted; if (localStream) { const t = localStream.getAudioTracks()[0]; if (t) t.enabled = !muted; } renderControls(); renderRoster(); renderMedia(); }
   async function toggleCam() {
     if (camStream) { removeLocalVideo(camStream); camStream = null; sendPresence(); renderControls(); renderMedia(); return; }
     try { camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); } catch (_) { return; }
@@ -480,6 +480,16 @@
     .tile.avatile .tava { width: 46px; height: 46px; font-size: 16px; }
     .panel.size-large .tile.avatile .tava { width: 64px; height: 64px; font-size: 22px; }
     .tile video { width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover; cursor: pointer; }
+    .tiles.voice { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 10px 14px; background: #0f1115; border: 1px solid #20242b; border-radius: 12px; padding: 13px 10px 10px; }
+    .vsitem { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 58px; }
+    .vsitem .ava { width: 44px; height: 44px; font-size: 15px; }
+    .vsitem .ava.spk { box-shadow: 0 0 0 2px #0f1115, 0 0 0 4px #22c55e; }
+    .vsname { font-size: 10.5px; color: #8b919c; max-width: 58px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .panel.size-large .tiles.voice { background: transparent; border: none; min-height: 100%; align-items: center; align-content: center; gap: 20px 28px; }
+    .panel.size-large .vsitem { width: 88px; }
+    .panel.size-large .vsitem .ava { width: 72px; height: 72px; font-size: 24px; }
+    .panel.size-large .vsitem .ava.spk { box-shadow: 0 0 0 3px #16181d, 0 0 0 6px #22c55e; }
+    .panel.size-large .vsname { font-size: 12px; max-width: 88px; }
     .tile .tlabel { position: absolute; left: 5px; bottom: 5px; font-size: 10px; background: rgba(0,0,0,.6); padding: 1px 6px; border-radius: 5px; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tile .pinbtn { position: absolute; right: 5px; top: 5px; background: rgba(0,0,0,.55); color: #fff; border: none; border-radius: 6px; padding: 3px; cursor: pointer; display: flex; opacity: .85; }
     .tile .pinbtn.on { background: #fbbf24; color: #1a1a1a; }
@@ -960,9 +970,11 @@
       ul.querySelectorAll('li > .ava').forEach((a, i) => a.classList.toggle('spk', !!flags[i]));
     }
     const wrap = $('tiles');
-    if (wrap) wrap.querySelectorAll('[data-aid]').forEach((tile) => {
-      const aid = tile.dataset.aid; const peer = peers.get(aid);
-      tile.classList.toggle('spk', aid === 'self' ? selfSpeaking : !!(peer && peer.speaking));
+    if (wrap) wrap.querySelectorAll('[data-aid]').forEach((el) => {
+      const aid = el.dataset.aid; const peer = peers.get(aid);
+      const spk = aid === 'self' ? selfSpeaking : !!(peer && peer.speaking);
+      // Voice-strip items ring the circle itself; tiles ring their border.
+      (el.classList.contains('vsitem') ? el.querySelector('.ava') : el).classList.toggle('spk', spk);
     });
   }
   function renderRoster() {
@@ -1037,10 +1049,20 @@
   function renderTiles() {
     const wrap = $('tiles'); if (!wrap) return;
     const list = desiredTiles();
-    const sig = JSON.stringify(list.map((t) => [t.id, t.label, t.id === pinnedStreamId])) + '|' + view;
+    const sig = JSON.stringify(list.map((t) => [t.id, t.label, t.id === pinnedStreamId])) + '|' + view + '|' + (muted ? 1 : 0);
     if (sig === wrap._sig) return; wrap._sig = sig;
+    // Discord-style: nobody on camera/screen -> compact strip of circle avatars;
+    // any video -> grid of cams + rounded-rect avatar tiles for camera-off folks.
+    const voice = !list.some((t) => !t.ava);
+    wrap.classList.toggle('voice', voice);
     wrap.innerHTML = '';
     for (const t of list) {
+      if (voice) {
+        const it = document.createElement('div'); it.className = 'vsitem'; it.dataset.aid = t.who; it.title = t.label;
+        const hasMic = t.who === 'self' ? (!muted && !!localStream) : true;
+        it.innerHTML = `${avaHtml(t.ava, false, hasMic)}<span class="vsname">${escapeHtml(t.label)}</span>`;
+        wrap.appendChild(it); continue;
+      }
       const tile = document.createElement('div'); tile.dataset.aid = t.who;
       if (t.ava != null) {
         tile.className = 'tile avatile';
